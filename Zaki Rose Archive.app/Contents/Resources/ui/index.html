@@ -1,0 +1,1005 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zaki Rose Archive</title>
+<style>
+@font-face{font-family:"Figtree";font-weight:400;font-style:normal;font-display:swap;src:url(fonts/figtree-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Figtree";font-weight:500;font-style:normal;font-display:swap;src:url(fonts/figtree-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"Figtree";font-weight:600;font-style:normal;font-display:swap;src:url(fonts/figtree-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Figtree";font-weight:700;font-style:normal;font-display:swap;src:url(fonts/figtree-latin-700-normal.woff2) format("woff2")}
+@font-face{font-family:"Figtree";font-weight:800;font-style:normal;font-display:swap;src:url(fonts/figtree-latin-800-normal.woff2) format("woff2")}
+
+:root{
+  --bg:#13192c;--panel:#19213a;--panel2:#1f2949;--line:#273254;--line2:#34406a;
+  --text:#e9eaed;--muted:#a3a9b8;--faint:#6f7790;
+  --rose:#be502f;--rose2:#d8673f;--roseglow:rgba(190,80,47,.22);--cream:#fdf0eb;
+  --ok:#7fd3a0;--okbg:rgba(127,211,160,.12);--warn:#f2c26b;--warnbg:rgba(242,194,107,.12);
+  --bad:#ff8f80;--badbg:rgba(255,143,128,.12);--info:#9fb4f0;--infobg:rgba(159,180,240,.12);
+  --serif:"Figtree",-apple-system,sans-serif;
+  --sans:"Figtree",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+  --mono:"SF Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:9px 12px;width:100%}
+input:focus,select:focus{outline:none;border-color:var(--rose2)}
+a{color:var(--rose2)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px 60px}
+
+/* top bar */
+header{position:sticky;top:0;z-index:20;background:rgba(19,25,44,.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:0 auto;padding:16px 28px;display:flex;align-items:center;gap:18px}
+.brand{display:flex;align-items:center;gap:12px;margin-right:auto}
+.brand .zr{font-size:25px;font-weight:800;letter-spacing:-.045em;line-height:1}
+.brand .ar{font-size:15px;color:var(--muted);font-weight:400;padding-left:12px;border-left:1px solid var(--line2);line-height:1.1}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line2);border-radius:999px;font-size:12.5px;color:var(--muted);white-space:nowrap;background:var(--panel)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+.dot.on{background:var(--ok);box-shadow:0 0 0 4px rgba(147,211,170,.15)}
+.dot.off{background:var(--bad)}
+.iconbtn{border:1px solid var(--line2);background:var(--panel);border-radius:999px;padding:6px 14px;font-size:12.5px}
+.iconbtn:hover{border-color:var(--rose2);color:var(--cream)}
+
+/* KPIs */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 8px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.kpi .l{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.kpi .v{font-size:30px;font-weight:700;margin-top:6px;letter-spacing:-.02em}
+.kpi .s{font-size:12.5px;color:var(--muted);margin-top:2px}
+.meter{height:6px;background:var(--line);border-radius:4px;margin-top:10px;overflow:hidden;position:relative}
+.meter i{display:block;height:100%;background:var(--rose2);border-radius:4px}
+.meter b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--text);opacity:.7}
+
+/* sections */
+.sec{margin-top:30px}
+.sech{display:flex;align-items:baseline;gap:12px;margin-bottom:12px}
+.sech h2{font-weight:700;font-size:22px;margin:0;letter-spacing:-.01em}
+.sech .sub{color:var(--muted);font-size:13px}
+.sech .grow{margin-left:auto}
+.lanes{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.lane{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.lane strong{color:var(--text);font-weight:600}
+
+/* project cards */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:12px}
+.card.ready{border-color:rgba(127,211,160,.5)}
+.card.attention{border-color:rgba(255,143,128,.5)}
+.ctop{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pname{font-size:16.5px;font-weight:600;letter-spacing:.01em}
+.dest{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--cream);background:rgba(190,80,47,.25);border-radius:999px;padding:3px 9px;font-weight:600}
+.badge{font-size:12px;border-radius:999px;padding:3px 10px;font-weight:600}
+.b-queued{background:var(--panel2);color:var(--muted)}
+.b-transferring,.b-verifying,.b-media,.b-sizing{background:var(--infobg);color:var(--info)}
+.b-ready{background:var(--okbg);color:var(--ok)}
+.b-attention{background:var(--badbg);color:var(--bad)}
+.b-paused{background:var(--warnbg);color:var(--warn)}
+.cact{margin-left:auto;display:flex;gap:8px}
+.btn{border:1px solid var(--line2);background:var(--panel2);border-radius:999px;padding:8px 16px;font-size:13.5px;font-weight:600}
+.btn:hover{border-color:var(--rose)}
+.btn.primary{background:var(--rose);border-color:var(--rose);color:#fff;font-weight:600}
+.btn.primary:hover{background:var(--rose2);border-color:var(--rose2)}
+.btn.danger{border-color:rgba(242,143,143,.5);color:var(--bad)}
+.btn:disabled{opacity:.45;cursor:default}
+.steps{display:flex;gap:0;margin:16px 0 12px}
+.step{flex:1;position:relative;font-size:11.5px;color:var(--faint);padding-top:14px}
+.step:before{content:"";position:absolute;top:4px;left:0;right:0;height:2px;background:var(--line)}
+.step:after{content:"";position:absolute;top:0;left:0;width:10px;height:10px;border-radius:50%;background:var(--panel);border:2px solid var(--line2)}
+.step.done{color:var(--muted)}.step.done:before{background:var(--rose2)}.step.done:after{background:var(--rose2);border-color:var(--rose2)}
+.step.now{color:var(--text);font-weight:600}.step.now:after{border-color:var(--rose2);background:var(--rose2);box-shadow:0 0 0 5px var(--roseglow)}
+.prog{height:8px;background:var(--line);border-radius:6px;overflow:hidden}
+.prog i{display:block;height:100%;background:linear-gradient(90deg,var(--rose),var(--rose2));border-radius:6px;transition:width .6s}
+.meta{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:8px}
+.meta b{color:var(--text);font-weight:600}
+.files{margin-top:8px;font:12px var(--mono);color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.verdict{margin-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.vbox{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12.5px}
+.vbox .t{color:var(--muted);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.vbox .r{margin-top:3px;font-weight:600}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.err{margin-top:10px;font-size:12.5px;color:var(--bad);background:var(--badbg);border-radius:8px;padding:8px 10px}
+
+.empty{border:1px dashed var(--line2);border-radius:16px;padding:34px;text-align:center;color:var(--muted)}
+.empty .big{font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px}
+.path{font:12.5px var(--mono);color:var(--cream);background:var(--panel2);padding:2px 7px;border-radius:6px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:500;color:var(--muted);font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:10px;border-bottom:1px solid var(--line)}
+.tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+
+.log{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-height:240px;overflow:auto;font:12px/1.6 var(--mono);padding:10px 14px;color:var(--muted)}
+.log .e{color:var(--bad)}.log .g{color:var(--ok)}
+
+/* drawer + modal */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;display:none}
+.scrim.show{display:block}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--panel);border-left:1px solid var(--line);z-index:50;transform:translateX(100%);transition:transform .25s;overflow:auto;padding:24px 26px 40px}
+.drawer.show{transform:none}
+.drawer h3{font-weight:700;font-size:24px;margin:0 0 4px}
+.drawer h4{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--rose2);margin:24px 0 10px}
+.f{margin-bottom:12px}
+.f label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px}
+.f .hint{font-size:12px;color:var(--faint);margin-top:4px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.chk{display:flex;align-items:center;gap:10px;font-size:13px;margin-bottom:10px}
+.chk input{width:auto}
+.modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,92vw);background:var(--panel);border:1px solid var(--line2);border-radius:18px;padding:24px;z-index:60;display:none}
+.modal.show{display:block}
+.modal h3{font-weight:700;font-size:22px;margin:0 0 10px}
+.modal p{color:var(--muted);margin:8px 0}
+.modal .acts{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+.pickrow{display:flex;gap:8px}.pickrow .btn{white-space:nowrap}
+.modal.wide{width:min(640px,94vw)}
+.crumbs{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:4px 0 10px;font-size:13px}
+.crumbs button{background:none;border:0;color:var(--muted);padding:3px 6px;border-radius:6px}
+.crumbs button:hover{background:var(--panel2);color:var(--text)}
+.crumbs button:last-child{color:var(--text);font-weight:600}
+.plist{border:1px solid var(--line);border-radius:12px;height:340px;overflow:auto;background:var(--bg)}
+.plist button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 14px;background:none;border:0;border-bottom:1px solid var(--line);font-size:14px}
+.plist button:hover{background:var(--panel2)}
+.plist .fi{width:16px;height:12px;border-radius:2px;background:var(--rose2);opacity:.85;flex:none}
+.plist .msg{padding:16px;color:var(--muted)}
+.newf{display:flex;gap:8px;margin-top:10px}.newf[hidden]{display:none}
+.nowbar{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 20px}
+.nowbar.active{border-color:rgba(216,103,63,.55)}
+.nowbar .top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:10px}
+.nowbar .lbl{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.nowbar .ttl{font-size:17px;font-weight:700}
+.nowbar .spd{margin-left:auto;font-size:22px;font-weight:700;letter-spacing:-.02em}
+.nowbar .spd small{font-size:12px;color:var(--muted);font-weight:500;margin-left:6px}
+.nowbar .prog{height:12px}
+.diag{margin-top:10px;font:12px/1.55 var(--mono);color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;max-height:220px;overflow:auto;white-space:pre-wrap}
+.hintbox{margin:10px 0 0;font-size:13px;color:var(--warn);background:var(--warnbg);border-radius:10px;padding:10px 12px;line-height:1.5}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line2);border-radius:12px;padding:12px 18px;z-index:70;display:none;font-size:13.5px}
+.toast.show{display:block}
+.setup{border:1px solid rgba(190,80,47,.55);background:linear-gradient(180deg,rgba(190,80,47,.12),transparent);border-radius:16px;padding:20px 22px;margin-top:24px}
+.setup h2{font-weight:700;margin:0 0 6px;font-size:21px}
+.disks{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.disks button{border:1px solid var(--line2);background:var(--panel2);border-radius:8px;padding:5px 10px;font:12px var(--mono)}
+.disks button:hover{border-color:var(--rose2);color:var(--cream)}
+@media (max-width:900px){.kpis{grid-template-columns:1fr 1fr}.verdict{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><span class="zr">zakirose</span><span class="ar">Archive</span></div>
+    <span class="pill" id="speedPill" title="Live transfer speed and current limit">— </span>
+    <span class="pill"><span class="dot" id="engDot"></span><span id="engTxt">Connecting…</span></span>
+    <button class="iconbtn" id="openSettings">Settings</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="setup"></div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">LucidLink</div><div class="v" id="kLL">—</div><div class="s" id="kLLs">Waiting for drive info</div><div class="meter"><i id="kLLm" style="width:0"></i><b id="kLLt" style="display:none"></b></div></div>
+    <div class="kpi"><div class="l">In the drop folders</div><div class="v" id="kQ">—</div><div class="s" id="kQs">&nbsp;</div></div>
+    <div class="kpi"><div class="l">Moved off LucidLink</div><div class="v" id="kM">0 TB</div><div class="s" id="kMs">Confirmed and removed</div></div>
+    <div class="kpi"><div class="l">Est. yearly savings</div><div class="v" id="kS">$0</div><div class="s" id="kSs">vs keeping it on LucidLink</div></div>
+  </div>
+
+  <div class="nowbar" id="now"></div>
+
+  <div class="sec">
+    <div class="sech"><h2>In progress</h2><span class="sub" id="pipeSub"></span>
+      <span class="grow"></span><button class="iconbtn" id="rescan">Check drop folders now</button></div>
+    <div class="lanes" id="lanes"></div>
+    <div id="pipeline"></div>
+  </div>
+
+  <div class="sec">
+    <div class="sech"><h2>Archived</h2><span class="sub">Verified, confirmed and removed from LucidLink</span></div>
+    <div id="history"></div>
+  </div>
+
+  <div class="sec">
+    <div class="sech"><h2>Activity</h2><span class="grow"></span><button class="iconbtn" id="engLogBtn">Show engine log</button><button class="iconbtn" id="notifBtn">Turn on notifications</button></div>
+    <div class="log" id="log"></div>
+    <div class="diag" id="engLog" hidden></div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<aside class="drawer" id="drawer">
+  <h3>Settings</h3>
+  <div style="color:var(--muted);font-size:13px">Changes apply right away and are remembered.</div>
+
+  <h4>Dropbox</h4>
+  <div class="f"><label>Drop folder on LucidLink</label>
+    <div class="pickrow"><input id="s_dropDropbox" placeholder="/Volumes/blue/DropboxArchive"><button type="button" class="btn" data-pick="drop|dropbox">Find folder…</button></div>
+    <div class="hint">Any project folder you move in here gets archived to Dropbox.</div></div>
+  <div class="f"><label>Archive into this Dropbox folder</label>
+    <div class="pickrow"><input id="s_dbxPath" placeholder="/ZR Team Folder/LucidLinkArchive"><button type="button" class="btn" data-pick="dest|dropbox">Find folder…</button></div></div>
+  <div class="f"><label>Dropbox connection (from rclone)</label><select id="s_dbxRemote"></select></div>
+
+  <h4>OneDrive</h4>
+  <div class="chk"><input type="checkbox" id="s_odEnabled"><label for="s_odEnabled">Also use OneDrive</label></div>
+  <div class="f"><label>Drop folder on LucidLink</label>
+    <div class="pickrow"><input id="s_dropOnedrive" placeholder="/Volumes/blue/OneDriveArchive"><button type="button" class="btn" data-pick="drop|onedrive">Find folder…</button></div></div>
+  <div class="f"><label>Archive into this OneDrive folder</label>
+    <div class="pickrow"><input id="s_odPath" placeholder="Archive"><button type="button" class="btn" data-pick="dest|onedrive">Find folder…</button></div></div>
+  <div class="f"><label>OneDrive connection (from rclone)</label><select id="s_odRemote"></select></div>
+
+  <h4>Reports</h4>
+  <div class="f"><label>Reports folder (inside each archive folder)</label><input id="s_reports"></div>
+
+  <h4>Speed</h4>
+  <div class="row3">
+    <div class="f"><label>Work hours start</label><input id="s_wStart" type="time"></div>
+    <div class="f"><label>Work hours end</label><input id="s_wEnd" type="time"></div>
+    <div class="f"><label>Limit during work hours</label><select id="s_wLimit"></select></div>
+  </div>
+  <div class="row">
+    <div class="f"><label>Limit outside work hours</label><select id="s_oLimit"></select></div>
+    <div class="f"><label>Files at once</label><select id="s_transfers"><option>4</option><option>8</option><option>12</option><option>16</option></select></div>
+  </div>
+  <div class="chk"><input type="checkbox" id="s_weekends"><label for="s_weekends">Weekends use the “outside work hours” limit all day</label></div>
+
+  <h4>Workflow</h4>
+  <div class="chk"><input type="checkbox" id="s_auto"><label for="s_auto">Start new drops automatically</label></div>
+  <div class="row">
+    <div class="f"><label>Projects at once</label><select id="s_parallel"><option>1</option><option>2</option><option>3</option></select></div>
+    <div class="f"><label>Media spot-checks per project</label><select id="s_samples"><option>0</option><option>3</option><option>6</option><option>10</option></select></div>
+  </div>
+  <div class="f"><label>Verification</label><select id="s_verify">
+    <option value="full">Full: re-read every source file and match fingerprints (recommended)</option>
+    <option value="quick">Quick: trust upload fingerprints, compare file counts and sizes</option></select>
+    <div class="hint">Full reads each project from LucidLink a second time. Quick is faster and still checks each file as it uploads.</div></div>
+
+  <h4>Cost model</h4>
+  <div class="row">
+    <div class="f"><label>LucidLink $ per TB / year</label><input id="s_llPer" type="number"></div>
+    <div class="f"><label>LucidLink target (TB)</label><input id="s_llTarget" type="number"></div>
+  </div>
+  <div class="row">
+    <div class="f"><label>Dropbox $ per extra TB / year</label><input id="s_dbxPer" type="number"></div>
+    <div class="f"><label>Dropbox space already paid for (TB)</label><input id="s_dbxFree" type="number"></div>
+  </div>
+
+  <div style="display:flex;gap:10px;margin-top:24px">
+    <button class="btn primary" id="saveSettings">Save</button>
+    <button class="btn" id="closeSettings">Close</button>
+    <span style="margin-left:auto"></span>
+    <button class="btn danger" id="quitEngine" title="Stops all transfers and the background engine">Stop engine</button>
+  </div>
+</aside>
+
+<div class="modal" id="modal"></div>
+<div class="toast" id="toast"></div>
+
+<script src="mediainfo/mediainfo.min.js"></script>
+<script>
+"use strict";
+/* ---------- basics ---------- */
+const AUTH = (() => {
+  let k = new URLSearchParams(location.hash.slice(1)).get("k");
+  try { if (k) sessionStorage.setItem("zra.k", k); else k = sessionStorage.getItem("zra.k"); } catch {}
+  if (location.hash) history.replaceState(null, "", location.pathname);
+  return k ? "Basic " + k : null;
+})();
+const afetch = (url, opt = {}) => fetch(new URL(url, location.origin + "/").href, {...opt, headers: {...(opt.headers || {}), ...(AUTH ? {Authorization: AUTH} : {})}});
+async function openReport(fs, file) {
+  const w = window.open("", "_blank");
+  try { const r = await afetch(serveUrl(fs, file), {cache: "no-store"}); const html = await r.text();
+    w.document.open(); w.document.write(html); w.document.close(); } catch (e) { w.close(); toast("Couldn't open report"); }
+}
+document.addEventListener("click", e => { const a = e.target.closest("[data-report]"); if (!a) return; e.preventDefault();
+  const [lane, name] = JSON.parse(a.dataset.report); openReport(reportsFs(lane), name + ".html"); });
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const LANES = {dropbox: "Dropbox", onedrive: "OneDrive"};
+const FILTER = {ExcludeRule: [".DS_Store", "._*", "Thumbs.db", "desktop.ini", "Icon\r", ".lucid*"]};
+const MEDIA_EXT = /\.(mov|mp4|m4v|mxf|mkv|avi|mts|m2ts|r3d|braw|ari|crm|wav|aif|aiff|mp3|m4a|dng|exr|dpx)$/i;
+const LIMITS = ["off","200M","100M","50M","25M","10M","5M"];
+const LIMIT_LABEL = {off:"No limit","200M":"200 MB/s","100M":"100 MB/s","50M":"50 MB/s","25M":"25 MB/s","10M":"10 MB/s","5M":"5 MB/s"};
+
+const DEFAULTS = {
+  lucidRoot: "", drop: {dropbox: "ForDropbox", onedrive: "ForOneDrive"}, dropPath: {dropbox: "", onedrive: ""},
+  lanes: {dropbox: {remote: "Dropbox", path: "/Archive", enabled: true},
+          onedrive: {remote: "OneDrive", path: "Archive", enabled: false}},
+  reportsFolder: "_Archive Reports",
+  transfers: 8, parallel: 1, autoStart: true, verify: "full", samples: 6,
+  speed: {start: "08:00", end: "19:00", work: "25M", off: "off", weekends: true},
+  money: {llPerTB: 600, llTargetTB: 45, dbxPerTB: 120, dbxFreeTB: 10},
+  held: [], bwlimit: ""
+};
+
+const st = {
+  env: {}, settings: null, online: false, remotes: [],
+  drops: {dropbox: [], onedrive: []},           // folder names in each drop folder
+  reports: {dropbox: new Map(), onedrive: new Map()}, // name -> report
+  reportMods: new Map(), sizes: new Map(),      // key -> {count,bytes}
+  busy: new Set(), phase: new Map(), errors: new Map(),
+  jobs: loadJobs(), stats: new Map(), totalSpeed: 0, limit: null,
+  prevState: new Map(), log: [], llDu: null, dbxAbout: null, lastScan: 0, lastAbout: 0
+};
+
+function fmtB(b) {
+  if (b == null || isNaN(b)) return "—";
+  const u = ["B","KB","MB","GB","TB","PB"]; let i = 0; b = Number(b);
+  while (b >= 1000 && i < u.length - 1) { b /= 1000; i++; }
+  return (b >= 100 || i === 0 ? b.toFixed(0) : b >= 10 ? b.toFixed(1) : b.toFixed(2)) + " " + u[i];
+}
+const TB = b => (b || 0) / 1e12;
+function fmtDur(s) {
+  if (s == null || !isFinite(s)) return "—";
+  s = Math.round(s); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`;
+}
+const money = n => "$" + Math.round(n).toLocaleString();
+const when = t => t ? new Date(t).toLocaleString([], {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"}) : "—";
+
+function log(msg, cls = "") {
+  st.log.unshift({t: new Date(), msg, cls});
+  st.log.length = Math.min(st.log.length, 300);
+  $("#log").innerHTML = st.log.map(l => `<div class="${l.cls}">${l.t.toLocaleTimeString()} · ${esc(l.msg)}</div>`).join("");
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 4200); }
+function notify(title, body) {
+  toast(`${title}: ${body}`);
+  try { if (window.Notification && Notification.permission === "granted") new Notification(title, {body}); } catch {}
+}
+
+/* ---------- rclone engine ---------- */
+async function rc(path, params = {}) {
+  const r = await afetch("/" + path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(params)});
+  let j = {}; try { j = await r.json(); } catch {}
+  if (!r.ok) throw new Error(j.error || `${r.status} ${r.statusText}`);
+  return j;
+}
+const join = (fs, name) => !name ? fs : fs.endsWith(":") || fs.endsWith("/") ? fs + name : fs + "/" + name;
+const serveUrl = (fs, rel) => "/" + encodeURIComponent("[" + fs + "]") + "/" + rel.split("/").map(encodeURIComponent).join("/");
+async function uploadText(fs, filename, text, type = "application/json") {
+  const fd = new FormData(); fd.append("file0", new Blob([text], {type}), filename);
+  const r = await afetch(`/operations/uploadfile?fs=${encodeURIComponent(fs)}&remote=`, {method: "POST", body: fd});
+  if (!r.ok) { let j = {}; try { j = await r.json(); } catch {} throw new Error(j.error || "upload failed"); }
+}
+
+/* jobs we started, remembered across reloads (rclone keeps finished results ~2h) */
+function loadJobs() { try { return JSON.parse(localStorage.getItem("zra.jobs") || "[]"); } catch { return []; } }
+function saveJobs() { try { localStorage.setItem("zra.jobs", JSON.stringify(st.jobs.slice(-200))); } catch {} }
+async function startJob(kind, lane, name, path, params) {
+  const group = `zra|${kind}|${lane}|${name}`;
+  const r = await rc(path, {...params, _async: true, _group: group});
+  const s = await rc("job/status", {jobid: r.jobid});
+  st.jobs.push({id: r.jobid, exec: s.executeId, group, kind, lane, name, status: s});
+  saveJobs(); return r.jobid;
+}
+async function refreshJobs() {
+  for (const j of st.jobs) {
+    if (j.lost || (j.status && j.status.finished)) continue;
+    try {
+      const s = await rc("job/status", {jobid: j.id});
+      if (s.executeId !== j.exec) j.lost = true; else j.status = s;
+    } catch { j.lost = true; }
+  }
+  st.jobs = st.jobs.filter(j => !j.lost); saveJobs();
+}
+const latestJob = (kind, lane, name) => st.jobs.filter(j => j.kind === kind && j.lane === lane && j.name === name).sort((a, b) => b.id - a.id)[0];
+
+/* ---------- settings ---------- */
+function laneFs(lane) { const l = st.settings.lanes[lane]; return `${l.remote}:${l.path || ""}`; }
+function dropFs(lane) { const s = st.settings; return s.dropPath[lane] || (s.lucidRoot ? join(s.lucidRoot.replace(/\/$/, ""), s.drop[lane]) : ""); }
+const baseName = p => (p || "").replace(/\/+$/, "").split("/").pop() || p;
+function volumeOf(p) { const m = /^\/Volumes\/[^/]+/.exec(p || ""); return m ? m[0] : (p || "").replace(/\/[^/]*$/, "") || "/"; }
+function reportsFs(lane) { return join(laneFs(lane), st.settings.reportsFolder); }
+function laneReady(lane) { const l = st.settings.lanes[lane]; return l.enabled && !!dropFs(lane) && st.remotes.includes(l.remote); }
+
+function bwTimetable(sp) {
+  const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], parts = [];
+  for (const d of days) {
+    if (sp.weekends && (d === "Sat" || d === "Sun")) { parts.push(`${d}-00:00,${sp.off}`); continue; }
+    parts.push(`${d}-00:00,${sp.off}`, `${d}-${sp.start},${sp.work}`, `${d}-${sp.end},${sp.off}`);
+  }
+  return parts.join(" ");
+}
+function currentLimit(sp) {
+  const now = new Date(), day = now.getDay(), hm = now.toTimeString().slice(0, 5);
+  if (sp.weekends && (day === 0 || day === 6)) return sp.off;
+  return hm >= sp.start && hm < sp.end ? sp.work : sp.off;
+}
+async function loadSettings() {
+  let s = {};
+  try { const r = await afetch(serveUrl(st.env.supportDir, "settings.json"), {cache: "no-store"}); if (r.ok) s = await r.json(); } catch {}
+  st.settings = deepMerge(structuredClone(DEFAULTS), s);
+}
+function deepMerge(a, b) { for (const k in b) a[k] = b[k] && typeof b[k] === "object" && !Array.isArray(b[k]) ? deepMerge(a[k] || {}, b[k]) : b[k]; return a; }
+async function saveSettings() {
+  const s = st.settings; s.bwlimit = bwTimetable(s.speed);
+  await uploadText(st.env.supportDir, "settings.json", JSON.stringify(s, null, 2));
+  await applySpeed();
+}
+async function applySpeed() {
+  const s = st.settings;
+  try {
+    await rc("options/set", {main: {BwLimit: bwTimetable(s.speed)}});
+    await rc("core/bwlimit", {rate: currentLimit(s.speed)});
+  } catch (e) { log("Couldn't apply speed limit: " + e.message, "e"); }
+}
+
+/* ---------- scanning ---------- */
+async function listDirs(fs) {
+  const r = await rc("operations/list", {fs, remote: "", opt: {dirsOnly: true}});
+  return (r.list || []).map(x => x.Name).filter(n => !n.startsWith(".") && n !== st.settings.reportsFolder);
+}
+async function scan() {
+  st.lastScan = Date.now();
+  try { st.remotes = (await rc("config/listremotes")).remotes || []; } catch {}
+  for (const lane of Object.keys(LANES)) {
+    if (!laneReady(lane)) { st.drops[lane] = []; continue; }
+    try { st.drops[lane] = await listDirs(dropFs(lane)); st.errors.delete("drop|" + lane); st.lastScanOk = Date.now(); }
+    catch (e) { st.drops[lane] = []; st.errors.set("drop|" + lane, e.message); }
+    try {
+      const r = await rc("operations/list", {fs: reportsFs(lane), remote: "", opt: {filesOnly: true}});
+      for (const f of r.list || []) {
+        if (!f.Name.endsWith(".json")) continue;
+        const name = f.Name.slice(0, -5), key = lane + "|" + name;
+        if (st.reportMods.get(key) === f.ModTime && st.reports[lane].has(name)) continue;
+        const res = await afetch(serveUrl(reportsFs(lane), f.Name), {cache: "no-store"});
+        if (res.ok) { st.reports[lane].set(name, await res.json()); st.reportMods.set(key, f.ModTime); }
+      }
+    } catch { /* reports folder not created yet */ }
+    for (const name of st.drops[lane]) {
+      const key = lane + "|" + name;
+      if (!st.sizes.has(key) && !st.busy.has("size|" + key)) {
+        st.busy.add("size|" + key);
+        rc("operations/size", {fs: join(dropFs(lane), name), _filter: FILTER})
+          .then(s => { st.sizes.set(key, s); render(); })
+          .catch(() => {}).finally(() => st.busy.delete("size|" + key));
+      }
+    }
+  }
+}
+async function refreshAbout() {
+  st.lastAbout = Date.now();
+  if (st.settings.lucidRoot) { try { st.llDu = (await rc("core/du", {dir: st.settings.lucidRoot})).info; } catch { st.llDu = null; } }
+  if (laneReady("dropbox")) { try { st.dbxAbout = await rc("operations/about", {fs: st.settings.lanes.dropbox.remote + ":"}); } catch { st.dbxAbout = null; } }
+}
+
+/* ---------- pipeline state ---------- */
+function projectState(lane, name) {
+  const key = lane + "|" + name, rep = st.reports[lane].get(name);
+  const copy = latestJob("copy", lane, name), ver = latestJob("verify", lane, name);
+  if (copy && !copy.status.finished) return "transferring";
+  if (ver && !ver.status.finished) return "verifying";
+  if (st.phase.get(key)) return st.phase.get(key);
+  if (rep && rep.status === "passed" && !rep.confirmedAt) return "ready";
+  if (rep && rep.status === "failed") return "attention";
+  if (st.settings.held.includes(key)) return "paused";
+  if (copy && copy.status.finished && !copy.status.success) return "attention";
+  return "queued";
+}
+async function advance() {
+  const s = st.settings;
+  let active = 0;
+  const all = [];
+  for (const lane of Object.keys(LANES)) for (const name of st.drops[lane]) {
+    const state = projectState(lane, name); all.push({lane, name, state});
+    if (["transferring", "verifying", "media", "sizing"].includes(state)) active++;
+  }
+  for (const p of all) {
+    const key = p.lane + "|" + p.name;
+    if (st.busy.has(key)) continue;
+    const copy = latestJob("copy", p.lane, p.name), ver = latestJob("verify", p.lane, p.name);
+    const rep = st.reports[p.lane].get(p.name);
+    if (rep) continue;
+    // copy finished OK and no verification yet -> verify
+    if (copy && copy.status.finished && copy.status.success && (!ver || ver.id < copy.id)) { run(key, () => beginVerify(p.lane, p.name)); continue; }
+    // verification finished -> write the report
+    if (ver && ver.status.finished && copy && ver.id > copy.id) { run(key, () => finishVerify(p.lane, p.name, ver)); continue; }
+    if (p.state === "queued" && s.autoStart && active < s.parallel) { active++; run(key, () => startCopy(p.lane, p.name)); }
+  }
+}
+function run(key, fn) {
+  st.busy.add(key);
+  fn().catch(e => { st.errors.set(key, e.message); log(`${key.replace("|", " → ")}: ${e.message}`, "e"); })
+      .finally(() => { st.busy.delete(key); st.phase.delete(key); render(); });
+}
+async function startCopy(lane, name) {
+  const key = lane + "|" + name; st.errors.delete(key);
+  await rc("operations/mkdir", {fs: laneFs(lane), remote: ""}).catch(() => {});
+  await startJob("copy", lane, name, "sync/copy", {
+    srcFs: join(dropFs(lane), name), dstFs: join(laneFs(lane), name), _filter: FILTER,
+    _config: {Transfers: Number(st.settings.transfers), Checkers: Number(st.settings.transfers) * 2}
+  });
+  log(`Started ${name} → ${LANES[lane]}`, "g");
+}
+async function beginVerify(lane, name) {
+  const key = lane + "|" + name;
+  const src = join(dropFs(lane), name), dst = join(laneFs(lane), name);
+  if (st.settings.verify === "full") {
+    await startJob("verify", lane, name, "operations/check", {srcFs: src, dstFs: dst, oneWay: true, _filter: FILTER,
+      _config: {Checkers: Number(st.settings.transfers) * 2}});
+    log(`Verifying ${name}: matching every file's fingerprint`);
+  } else {
+    // quick mode: a "verify" job that just measures the destination
+    await startJob("verify", lane, name, "operations/size", {fs: dst, _filter: FILTER});
+    log(`Verifying ${name}: quick count and size match`);
+  }
+}
+async function finishVerify(lane, name, verJob) {
+  const key = lane + "|" + name, s = st.settings;
+  const src = join(dropFs(lane), name), dst = join(laneFs(lane), name);
+  const copy = latestJob("copy", lane, name);
+  st.phase.set(key, "media"); render();
+  const [srcSize, dstSize] = await Promise.all([
+    rc("operations/size", {fs: src, _filter: FILTER}), rc("operations/size", {fs: dst, _filter: FILTER})]);
+  const out = verJob.status.output || {};
+  const check = s.verify === "full"
+    ? {mode: "full", ok: !!out.success, hashType: out.hashType, differ: out.differ || [], missing: out.missingOnDst || [], errors: out.error || [], note: out.status || verJob.status.error}
+    : {mode: "quick", ok: verJob.status.success, hashType: "upload-time " + (lane === "dropbox" ? "dropbox" : "quickxor"), differ: [], missing: [], errors: [], note: "Fingerprints checked during upload"};
+  const sizeOk = srcSize.count === dstSize.count && srcSize.bytes === dstSize.bytes;
+  const media = s.samples > 0 ? await mediaCheck(src, dst, Number(s.samples), key) : [];
+  const mediaOk = media.every(m => m.ok !== false);
+  const report = {
+    app: "Zaki Rose Archive", version: 1, lane, destinationName: LANES[lane], project: name,
+    source: src, destination: dst,
+    transferStarted: copy?.status.startTime, transferFinished: copy?.status.endTime, verifiedAt: new Date().toISOString(),
+    size: {source: srcSize, destination: dstSize, ok: sizeOk}, check, media, mediaOk,
+    status: sizeOk && check.ok && mediaOk ? "passed" : "failed", confirmedAt: null
+  };
+  await writeReport(lane, report);
+  if (report.status === "passed") notify("Ready to confirm", `${name} is fully copied to ${LANES[lane]} and verified.`);
+  else notify("Needs attention", `${name} didn't pass verification.`);
+  log(`${name}: verification ${report.status}`, report.status === "passed" ? "g" : "e");
+}
+async function writeReport(lane, r) {
+  await uploadText(reportsFs(lane), r.project + ".json", JSON.stringify(r, null, 2));
+  await uploadText(reportsFs(lane), r.project + ".html", reportHtml(r), "text/html");
+  st.reports[lane].set(r.project, r);
+}
+
+/* ---------- media spot-check (MediaInfo, read straight from both sides) ---------- */
+let MI = null, miQueue = Promise.resolve();
+async function mediainfo() {
+  if (!MI) {
+    const buf = await (await afetch("mediainfo/MediaInfoModule.wasm")).arrayBuffer();
+    const url = URL.createObjectURL(new Blob([buf], {type: "application/wasm"}));
+    MI = await MediaInfo.mediaInfoFactory({format: "object", locateFile: () => url});
+  }
+  return MI;
+}
+function analyzeUrl(url, size) {
+  const job = miQueue.then(async () => {
+    const m = await mediainfo();
+    return m.analyzeData(size, async (len, off) => {
+      if (off >= size) return new Uint8Array(0);
+      const r = await afetch(url, {headers: {Range: `bytes=${off}-${Math.min(size, off + len) - 1}`}});
+      if (!r.ok) throw new Error("read failed " + r.status);
+      return new Uint8Array(await r.arrayBuffer());
+    });
+  });
+  miQueue = job.catch(() => {});
+  return job;
+}
+const MI_KEYS = {General: ["Format", "FileSize", "Duration", "OverallBitRate"],
+  Video: ["Format", "CodecID", "Width", "Height", "FrameRate", "BitDepth", "ChromaSubsampling", "ColorSpace"],
+  Audio: ["Format", "Channels", "SamplingRate", "BitDepth"]};
+function pickFields(res) {
+  const out = {}, count = {};
+  for (const t of (res && res.media && res.media.track) || []) {
+    const T = t["@type"], keys = MI_KEYS[T]; if (!keys) continue;
+    count[T] = (count[T] || 0) + 1; const label = T + (count[T] > 1 ? " " + count[T] : "");
+    for (const k of keys) if (t[k] != null) out[`${label} · ${k}`] = String(t[k]);
+  }
+  return out;
+}
+async function mediaCheck(src, dst, n, key) {
+  const r = await rc("operations/list", {fs: src, remote: "", opt: {recurse: true, filesOnly: true}, _filter: FILTER});
+  const media = (r.list || []).filter(f => MEDIA_EXT.test(f.Name) && f.Size > 0).sort((a, b) => b.Size - a.Size);
+  if (!media.length) return [];
+  const pick = media.slice(0, Math.ceil(n / 2));
+  const rest = media.slice(pick.length).sort(() => Math.random() - .5);
+  pick.push(...rest.slice(0, n - pick.length));
+  const results = [];
+  for (const f of pick) {
+    st.phase.set(key, "media"); st.mediaNow = f.Path; render();
+    const row = {file: f.Path, size: f.Size, fields: []};
+    try {
+      const [a, b] = [pickFields(await analyzeUrl(serveUrl(src, f.Path), f.Size)), pickFields(await analyzeUrl(serveUrl(dst, f.Path), f.Size))];
+      const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
+      row.fields = keys.map(k => ({k, src: a[k] ?? "—", dst: b[k] ?? "—", ok: a[k] === b[k]}));
+      row.ok = row.fields.length > 0 && row.fields.every(x => x.ok);
+      if (!row.fields.length) row.ok = null; // unreadable format on both sides: not a failure
+    } catch (e) { row.ok = false; row.error = e.message; }
+    results.push(row);
+  }
+  st.mediaNow = null;
+  return results;
+}
+
+/* ---------- report page ---------- */
+function reportHtml(r) {
+  const okc = v => v ? "#2f8a55" : "#c0392b";
+  const media = r.media.length ? r.media.map(m => `
+    <h3 style="margin:22px 0 6px;font:600 14px -apple-system,sans-serif">${esc(m.file)} <span style="color:${m.ok === false ? "#c0392b" : "#2f8a55"}">${m.ok === false ? "✗ mismatch" : m.ok === null ? "– not a readable media format" : "✓ identical"}</span></h3>
+    ${m.error ? `<p style="color:#c0392b">${esc(m.error)}</p>` : ""}
+    <table><tr><th>Property</th><th>LucidLink (source)</th><th>${esc(r.destinationName)} (copy)</th></tr>
+    ${m.fields.map(f => `<tr><td>${esc(f.k)}</td><td>${esc(f.src)}</td><td style="color:${okc(f.ok)}">${esc(f.dst)}</td></tr>`).join("")}</table>`).join("")
+    : "<p>No media files were sampled.</p>";
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(r.project)} · Archive verification</title>
+<style>body{font:14px/1.5 Figtree,-apple-system,Helvetica,sans-serif;color:#13192c;max-width:900px;margin:40px auto;padding:0 24px}
+h1{font:800 32px Figtree,-apple-system,sans-serif;letter-spacing:-.02em;margin:0}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px solid #eee;text-align:left;padding:6px 8px}
+th{color:#7a6e6b;font-weight:500}.k{color:#7a6e6b}.big{font-size:18px;font-weight:600}</style></head><body>
+<div style="font-weight:800;font-size:20px;letter-spacing:-.04em">zakirose <span style="font-weight:400;font-size:13px;letter-spacing:.14em;color:#be502f;text-transform:uppercase;padding-left:8px">Archive · Verification report</span></div>
+<h1>${esc(r.project)}</h1>
+<p class="big" style="color:${okc(r.status === "passed")}">${r.status === "passed" ? "✓ Verified: the copy is complete and identical" : "✗ Not verified"}</p>
+<table>
+<tr><td class="k">From</td><td>${esc(r.source)}</td></tr>
+<tr><td class="k">To</td><td>${esc(r.destination)}</td></tr>
+<tr><td class="k">Transfer</td><td>${when(r.transferStarted)} → ${when(r.transferFinished)}</td></tr>
+<tr><td class="k">Verified</td><td>${when(r.verifiedAt)}</td></tr>
+<tr><td class="k">Files / size</td><td>Source ${r.size.source.count} files, ${fmtB(r.size.source.bytes)} · Copy ${r.size.destination.count} files, ${fmtB(r.size.destination.bytes)} <b style="color:${okc(r.size.ok)}">${r.size.ok ? "match" : "differ"}</b></td></tr>
+<tr><td class="k">Fingerprints</td><td>${r.check.mode === "full" ? `Every file re-read and matched by ${esc(r.check.hashType)} hash` : "Checked file-by-file during upload"} <b style="color:${okc(r.check.ok)}">${r.check.ok ? "all match" : esc(r.check.note || "problem")}</b>
+${r.check.differ.length ? `<br>Different: ${r.check.differ.map(esc).join(", ")}` : ""}${r.check.missing.length ? `<br>Missing on copy: ${r.check.missing.map(esc).join(", ")}` : ""}</td></tr>
+<tr><td class="k">Removed from LucidLink</td><td>${r.confirmedAt ? when(r.confirmedAt) : "Not yet"}</td></tr>
+</table>
+<h2 style="font:700 20px Figtree,-apple-system,sans-serif;margin-top:30px">MediaInfo spot-check</h2>${media}
+</body></html>`;
+}
+
+/* ---------- actions ---------- */
+async function stopProject(lane, name) {
+  const key = lane + "|" + name;
+  if (!st.settings.held.includes(key)) st.settings.held.push(key);
+  for (const k of ["copy", "verify"]) { const j = latestJob(k, lane, name); if (j && !j.status.finished) await rc("job/stop", {jobid: j.id}).catch(() => {}); }
+  await saveSettings(); log(`Paused ${name}`); render();
+}
+async function resumeProject(lane, name) {
+  const key = lane + "|" + name;
+  st.settings.held = st.settings.held.filter(k => k !== key);
+  await saveSettings(); log(`Resumed ${name}`);
+  if (!st.settings.autoStart) run(key, () => startCopy(lane, name)); render();
+}
+async function retryProject(lane, name) {
+  const key = lane + "|" + name;
+  await rc("operations/deletefile", {fs: reportsFs(lane), remote: name + ".json"}).catch(() => {});
+  await rc("operations/deletefile", {fs: reportsFs(lane), remote: name + ".html"}).catch(() => {});
+  st.reports[lane].delete(name); st.errors.delete(key);
+  st.settings.held = st.settings.held.filter(k => k !== key);
+  run(key, () => startCopy(lane, name));
+}
+function openConfirm(lane, name) {
+  const r = st.reports[lane].get(name);
+  $("#modal").innerHTML = `<h3>Remove “${esc(name)}” from LucidLink?</h3>
+    <p>The copy in ${esc(LANES[lane])} was verified ${when(r.verifiedAt)}: <b style="color:var(--text)">${r.size.source.count} files, ${fmtB(r.size.source.bytes)}</b>, all fingerprints matching.</p>
+    <p>Before deleting, the app checks that the LucidLink folder hasn't changed since then. Once removed, the only copy is in ${esc(LANES[lane])} (and LucidLink's snapshots, if you keep them).</p>
+    <div class="acts"><button class="btn" onclick="closeModal()">Cancel</button>
+    <button class="btn primary" id="doConfirm">Confirm and remove</button></div>`;
+  showModal();
+  $("#doConfirm").onclick = async () => {
+    $("#doConfirm").disabled = true; $("#doConfirm").textContent = "Checking…";
+    try { await confirmRemove(lane, name); closeModal(); }
+    catch (e) { $("#doConfirm").textContent = "Couldn't remove"; log(`${name}: ${e.message}`, "e"); toast(e.message); }
+  };
+}
+async function confirmRemove(lane, name) {
+  const key = lane + "|" + name, r = st.reports[lane].get(name), src = join(dropFs(lane), name);
+  const now = await rc("operations/size", {fs: src, _filter: FILTER});
+  if (now.count !== r.size.source.count || now.bytes !== r.size.source.bytes) {
+    await retryProject(lane, name);
+    throw new Error(`${name} changed on LucidLink since it was verified, so it's being copied and verified again.`);
+  }
+  st.phase.set(key, "removing"); render();
+  await rc("operations/purge", {fs: dropFs(lane), remote: name});
+  r.confirmedAt = new Date().toISOString(); r.removedBytes = now.bytes;
+  await writeReport(lane, r);
+  st.phase.delete(key); st.drops[lane] = st.drops[lane].filter(n => n !== name); st.sizes.delete(key);
+  log(`${name}: removed from LucidLink (${fmtB(now.bytes)} freed)`, "g"); toast(`${name} removed from LucidLink`);
+  render();
+}
+function showModal() { $("#modal").classList.add("show"); $("#scrim").classList.add("show"); }
+function closeModal() { $("#modal").classList.remove("show"); if (!$("#drawer").classList.contains("show")) $("#scrim").classList.remove("show"); }
+window.closeModal = closeModal;
+
+/* ---------- rendering ---------- */
+const STEPS = [["queued", "Queued"], ["transferring", "Transferring"], ["verifying", "Verifying"], ["media", "Media check"], ["ready", "Ready to confirm"]];
+const LABEL = {queued: "Queued", transferring: "Transferring", verifying: "Verifying", media: "Media check", ready: "Ready to confirm", attention: "Needs attention", paused: "Paused", removing: "Removing…"};
+function render() {
+  if (!st.settings) return;
+  const s = st.settings;
+  // speed pill
+  const lim = currentLimit(s.speed);
+  $("#speedPill").innerHTML = `${fmtB(st.totalSpeed)}/s · ${lim === "off" ? "no limit" : "limit " + (LIMIT_LABEL[lim] || lim)}`;
+  // lanes
+  $("#lanes").innerHTML = Object.keys(LANES).filter(l => s.lanes[l].enabled).map(l => {
+    const conn = st.remotes.includes(s.lanes[l].remote);
+    const e = st.errors.get("drop|" + l);
+    return `<div class="lane"><span class="dot ${conn && !e ? "on" : "off"}"></span>
+      <span class="path">${esc(baseName(dropFs(l)))}</span> → <strong>${esc(LANES[l])}</strong> <span class="path">${esc(s.lanes[l].path)}</span>
+      ${!conn ? `<span class="bad">· “${esc(s.lanes[l].remote)}” isn't connected in rclone</span>` : e ? `<span class="bad">· ${/permit|denied/i.test(e) ? "macOS is blocking access" : "drop folder not found"}</span>` : `<span>· ${st.drops[l].length} project${st.drops[l].length === 1 ? "" : "s"} seen</span>`}</div>`;
+  }).join("");
+  // pipeline
+  const items = [];
+  for (const lane of Object.keys(LANES)) for (const name of st.drops[lane]) items.push({lane, name, state: projectState(lane, name)});
+  const order = {attention: 0, ready: 1, transferring: 2, verifying: 2, media: 2, removing: 2, paused: 3, queued: 4};
+  items.sort((a, b) => order[a.state] - order[b.state] || a.name.localeCompare(b.name));
+  for (const it of items) {
+    const key = it.lane + "|" + it.name, prev = st.prevState.get(key);
+    if (prev && prev !== it.state && it.state === "attention") notify("Needs attention", `${it.name} hit a problem.`);
+    st.prevState.set(key, it.state);
+  }
+  $("#pipeSub").textContent = items.length ? `${items.length} project${items.length > 1 ? "s" : ""}` : "";
+  $("#pipeline").innerHTML = items.length ? items.map(cardHtml).join("") : (dropFs("dropbox") ? `<div class="empty"><div class="big">Nothing waiting</div>
+    Move a project folder into <span class="path">${esc(baseName(dropFs("dropbox")))}</span>${s.lanes.onedrive.enabled && dropFs("onedrive") ? ` or <span class="path">${esc(baseName(dropFs("onedrive")))}</span>` : ""} on LucidLink and it'll show up here.
+    <div class="hintbox" style="text-align:left;max-width:720px;margin:14px auto 0">Already have folders in there and still see nothing? ${PERM_HINT}</div></div>` : "");
+  // KPIs
+  let queued = 0, qn = 0;
+  for (const it of items) { const z = st.sizes.get(it.lane + "|" + it.name); if (z) { queued += z.bytes; qn++; } }
+  $("#kQ").textContent = items.length ? fmtB(queued) : "0 TB";
+  $("#kQs").textContent = items.length ? `${items.length} project${items.length > 1 ? "s" : ""}${qn < items.length ? " · measuring…" : ""}` : "Nothing waiting";
+  const hist = [];
+  for (const lane of Object.keys(LANES)) for (const r of st.reports[lane].values()) if (r.confirmedAt) hist.push(r);
+  hist.sort((a, b) => b.confirmedAt.localeCompare(a.confirmedAt));
+  const moved = hist.reduce((a, r) => a + (r.removedBytes || r.size.source.bytes), 0);
+  const movedDbx = hist.filter(r => r.lane === "dropbox").reduce((a, r) => a + (r.removedBytes || r.size.source.bytes), 0);
+  const m = s.money, save = TB(moved) * m.llPerTB - Math.max(0, TB(movedDbx) - m.dbxFreeTB) * m.dbxPerTB;
+  $("#kM").textContent = fmtB(moved).replace(/^0 B$/, "0 TB");
+  $("#kMs").textContent = `${hist.length} project${hist.length === 1 ? "" : "s"} confirmed and removed`;
+  $("#kS").textContent = money(Math.max(0, save));
+  $("#kSs").textContent = `$${m.llPerTB}/TB LucidLink vs $${m.dbxPerTB}/TB Dropbox past ${m.dbxFreeTB} TB`;
+  if (st.llDu && st.llDu.Total > 0) {
+    const used = st.llDu.Total - st.llDu.Free, tgt = m.llTargetTB * 1e12, scale = Math.max(st.llDu.Total, tgt * 1.15);
+    $("#kLL").textContent = fmtB(used);
+    $("#kLLs").innerHTML = used > tgt ? `<span class="warn">${fmtB(used - tgt)} over the ${m.llTargetTB} TB target</span>` : `<span class="ok">Under the ${m.llTargetTB} TB target</span>`;
+    $("#kLLm").style.width = Math.min(100, used / scale * 100) + "%";
+    $("#kLLt").style.display = "block"; $("#kLLt").style.left = (tgt / scale * 100) + "%";
+  } else { $("#kLL").textContent = "—"; $("#kLLs").textContent = s.lucidRoot ? "Drive doesn't report its size" : "Choose a drop folder in Settings"; }
+  // history
+  $("#history").innerHTML = hist.length ? `<div class="tablewrap"><table><tr><th>Project</th><th>Went to</th><th>Size</th><th>Files</th><th>Removed from LucidLink</th><th>Proof</th></tr>
+    ${hist.map(r => `<tr><td>${esc(r.project)}</td><td>${esc(r.destinationName)}</td><td>${fmtB(r.size.source.bytes)}</td><td>${r.size.source.count.toLocaleString()}</td><td>${when(r.confirmedAt)}</td>
+    <td><a href="#" data-report='${esc(JSON.stringify([r.lane, r.project]))}'>Report</a></td></tr>`).join("")}</table></div>`
+    : `<div class="empty" style="padding:22px">Nothing archived yet.</div>`;
+  renderNow(items);
+  renderSetup();
+}
+function renderNow(items) {
+  const act = items.filter(i => i.state === "transferring" || i.state === "verifying");
+  const lim = currentLimit(st.settings.speed), limTxt = lim === "off" ? "no limit" : "limit " + (LIMIT_LABEL[lim] || lim);
+  if (!act.length) {
+    const scanned = st.lastScanOk ? new Date(st.lastScanOk).toLocaleTimeString([], {hour: "numeric", minute: "2-digit", second: "2-digit"}) : "—";
+    $("#now").className = "nowbar";
+    $("#now").innerHTML = `<div class="top"><span class="lbl">Now</span><span class="ttl">Idle, nothing transferring</span>
+      <span class="spd">${fmtB(st.totalSpeed)}/s<small>${limTxt}</small></span></div>
+      <div class="meta">Drop folders last checked ${scanned}. Found ${items.length} project${items.length === 1 ? "" : "s"}.</div>`;
+    return;
+  }
+  let done = 0, total = 0, eta = 0, speed = 0, names = [];
+  for (const i of act) {
+    const key = i.lane + "|" + i.name, z = st.sizes.get(key);
+    const g = st.stats.get(`zra|${i.state === "transferring" ? "copy" : "verify"}|${key}`) || {};
+    if (i.state === "transferring") { done += g.bytes || 0; total += Math.max(g.totalBytes || 0, z?.bytes || 0); eta = Math.max(eta, g.eta || 0);
+      speed += (g.transferring || []).reduce((a, t) => a + (t.speedAvg || 0), 0); }
+    names.push(i.name + (i.state === "verifying" ? " (verifying)" : ""));
+  }
+  const pct = total ? Math.min(100, done / total * 100) : 0;
+  $("#now").className = "nowbar active";
+  $("#now").innerHTML = `<div class="top"><span class="lbl">Now</span><span class="ttl">${esc(names.join(", "))}</span>
+    <span class="spd">${fmtB(speed || st.totalSpeed)}/s<small>${limTxt}</small></span></div>
+    ${total ? `<div class="prog"><i style="width:${pct.toFixed(1)}%"></i></div>
+    <div class="meta"><span><b>${pct.toFixed(1)}%</b></span><span><b>${fmtB(done)}</b> of ${fmtB(total)}</span><span>Time left <b>${fmtDur(eta)}</b></span></div>`
+    : `<div class="meta">Checking fingerprints…</div>`}`;
+}
+function cardHtml(it) {
+  const {lane, name, state} = it, key = lane + "|" + name, rep = st.reports[lane].get(name);
+  const size = st.sizes.get(key), err = st.errors.get(key);
+  const idx = STEPS.findIndex(x => x[0] === state), ready = state === "ready";
+  const steps = STEPS.map((x, i) => `<div class="step ${ready || i < idx ? "done" : i === idx ? "now" : ""}">${x[1]}</div>`).join("");
+  let body = "";
+  if (state === "transferring" || state === "verifying") {
+    const g = st.stats.get(`zra|${state === "transferring" ? "copy" : "verify"}|${key}`) || {};
+    let done, total, unit;
+    if (state === "transferring") { done = g.bytes || 0; total = Math.max(g.totalBytes || 0, size?.bytes || 0); unit = "bytes"; }
+    else { done = g.checks || 0; total = Math.max(g.totalChecks || 0, size?.count || 0); unit = "files"; }
+    const pct = total ? Math.min(100, done / total * 100) : 0;
+    const files = (g.transferring || []).map(t => t.name).concat(g.checking || []).slice(0, 3);
+    body = `<div class="prog"><i style="width:${pct.toFixed(1)}%"></i></div>
+      <div class="meta"><span><b>${pct.toFixed(1)}%</b></span>
+      <span>${unit === "bytes" ? `<b>${fmtB(done)}</b> of ${fmtB(total)}` : `<b>${done.toLocaleString()}</b> of ${total.toLocaleString()} files fingerprinted`}</span>
+      ${state === "transferring" ? `<span>Speed <b>${fmtB((g.transferring || []).reduce((a, t) => a + (t.speedAvg || 0), 0))}/s</b></span><span>Time left <b>${fmtDur(g.eta)}</b></span>` : ""}
+      ${g.errors ? `<span class="warn">${g.errors} retr${g.errors > 1 ? "ies" : "y"}</span>` : ""}</div>
+      ${files.length ? `<div class="files">${files.map(esc).join("  ·  ")}</div>` : ""}`;
+  } else if (state === "media") {
+    body = `<div class="meta">Comparing MediaInfo on both copies${st.mediaNow ? `: <b>${esc(st.mediaNow)}</b>` : "…"}</div>`;
+  } else if (state === "queued" || state === "paused") {
+    body = `<div class="meta">${size ? `<span><b>${fmtB(size.bytes)}</b> · ${size.count.toLocaleString()} files</span>` : "<span>Measuring…</span>"}
+      ${state === "queued" ? `<span>${st.settings.autoStart ? "Starts when a slot is free" : "Waiting for you to start it"}</span>` : ""}</div>`;
+  }
+  if (rep && (state === "ready" || state === "attention")) {
+    const mOk = rep.media.filter(m => m.ok === true).length, mBad = rep.media.filter(m => m.ok === false).length;
+    body = `<div class="verdict">
+      <div class="vbox"><div class="t">Files &amp; size</div><div class="r ${rep.size.ok ? "ok" : "bad"}">${rep.size.ok ? "✓" : "✗"} ${rep.size.source.count.toLocaleString()} file${rep.size.source.count === 1 ? "" : "s"} · ${fmtB(rep.size.source.bytes)}</div></div>
+      <div class="vbox"><div class="t">Fingerprints</div><div class="r ${rep.check.ok ? "ok" : "bad"}">${rep.check.ok ? "✓ Every file identical" : `✗ ${rep.check.differ.length} different, ${rep.check.missing.length} missing`}</div></div>
+      <div class="vbox"><div class="t">MediaInfo</div><div class="r ${mBad ? "bad" : "ok"}">${rep.media.length ? (mBad ? `✗ ${mBad} mismatch` : `✓ ${mOk} of ${rep.media.length} clips match`) : "– No clips sampled"}</div></div>
+    </div>`;
+  }
+  const btns = [];
+  if (state === "ready") btns.push(`<a class="btn" href="#" data-report='${esc(JSON.stringify([lane, name]))}' style="text-decoration:none">View report</a>`,
+    `<button class="btn primary" data-a="confirm">Confirm &amp; remove from LucidLink</button>`);
+  if (state === "attention") { if (rep) btns.push(`<a class="btn" href="#" data-report='${esc(JSON.stringify([lane, name]))}' style="text-decoration:none">View report</a>`); btns.push(`<button class="btn" data-a="retry">Try again</button>`); }
+  if (state === "transferring" || state === "verifying") btns.push(`<button class="btn" data-a="pause">Pause</button>`);
+  if (state === "paused") btns.push(`<button class="btn" data-a="resume">Resume</button>`);
+  if (state === "queued" && !st.settings.autoStart) btns.push(`<button class="btn primary" data-a="start">Start</button>`);
+  const copy = latestJob("copy", lane, name);
+  const copyErr = state === "attention" && !rep && copy?.status.error ? copy.status.error : "";
+  return `<div class="card ${state}" data-lane="${lane}" data-name="${esc(name)}">
+    <div class="ctop"><span class="pname">${esc(name)}</span><span class="dest">→ ${esc(LANES[lane])}</span>
+      <span class="badge b-${state}">${LABEL[state] || state}</span><div class="cact">${btns.join("")}</div></div>
+    ${state === "paused" || state === "attention" ? "" : `<div class="steps">${steps}</div>`}
+    ${body}${err || copyErr ? `<div class="err">${esc(err || copyErr)}</div>` : ""}</div>`;
+}
+function renderSetup() {
+  const s = st.settings, need = [];
+  if (!dropFs("dropbox")) need.push("Choose your drop folder on LucidLink");
+  if (!st.remotes.includes(s.lanes.dropbox.remote)) need.push(`Connect Dropbox in rclone (named “${esc(s.lanes.dropbox.remote)}”)`);
+  const missing = Object.keys(LANES).filter(l => s.lanes[l].enabled && dropFs(l) && st.errors.has("drop|" + l));
+  $("#setup").innerHTML = need.length || missing.length ? `<div class="setup"><h2>Finish setup</h2>
+    ${need.map(n => `<div>• ${n}</div>`).join("")}
+    ${missing.length ? `<div style="margin-top:6px">• Drop folder${missing.length > 1 ? "s" : ""} not found on LucidLink: ${missing.map(l => `<span class="path">${esc(dropFs(l))}</span>`).join(" ")}
+      <button class="btn primary" id="mkDrops" style="margin-left:8px">Create ${missing.length > 1 ? "them" : "it"}</button></div>` : ""}
+    <div style="margin-top:12px"><button class="btn" onclick="openSettings()">Open settings</button></div></div>` : "";
+  const mk = $("#mkDrops");
+  if (mk) mk.onclick = async () => {
+    for (const l of missing) await rc("operations/mkdir", {fs: dropFs(l), remote: ""}).catch(e => toast(e.message));
+    log("Created drop folders on LucidLink", "g"); await scan(); render();
+  };
+}
+
+$("#pipeline").addEventListener("click", e => {
+  const b = e.target.closest("button[data-a]"); if (!b) return;
+  const c = b.closest(".card"), lane = c.dataset.lane, name = c.dataset.name, a = b.dataset.a;
+  if (a === "confirm") openConfirm(lane, name);
+  if (a === "retry") retryProject(lane, name);
+  if (a === "pause") stopProject(lane, name);
+  if (a === "resume") resumeProject(lane, name);
+  if (a === "start") run(lane + "|" + name, () => startCopy(lane, name));
+});
+
+/* ---------- settings drawer ---------- */
+function fillLimits(sel) { sel.innerHTML = LIMITS.map(l => `<option value="${l}">${LIMIT_LABEL[l]}</option>`).join(""); }
+async function openSettings() {
+  const s = st.settings;
+  fillLimits($("#s_wLimit")); fillLimits($("#s_oLimit"));
+  const opts = r => (st.remotes.length ? st.remotes : [r]).map(x => `<option ${x === r ? "selected" : ""}>${esc(x)}</option>`).join("");
+  $("#s_dbxRemote").innerHTML = opts(s.lanes.dropbox.remote);
+  $("#s_odRemote").innerHTML = opts(s.lanes.onedrive.remote) + (st.remotes.includes(s.lanes.onedrive.remote) ? "" : `<option selected>${esc(s.lanes.onedrive.remote)}</option>`);
+  const v = {s_dropDropbox: dropFs("dropbox"), s_dropOnedrive: dropFs("onedrive"), s_dbxPath: s.lanes.dropbox.path,
+    s_odPath: s.lanes.onedrive.path, s_reports: s.reportsFolder, s_wStart: s.speed.start, s_wEnd: s.speed.end, s_wLimit: s.speed.work,
+    s_oLimit: s.speed.off, s_transfers: String(s.transfers), s_parallel: String(s.parallel), s_samples: String(s.samples), s_verify: s.verify,
+    s_llPer: s.money.llPerTB, s_llTarget: s.money.llTargetTB, s_dbxPer: s.money.dbxPerTB, s_dbxFree: s.money.dbxFreeTB};
+  for (const k in v) $("#" + k).value = v[k];
+  $("#s_odEnabled").checked = s.lanes.onedrive.enabled; $("#s_weekends").checked = s.speed.weekends; $("#s_auto").checked = s.autoStart;
+  $("#drawer").classList.add("show"); $("#scrim").classList.add("show");
+}
+window.openSettings = openSettings;
+function closeSettings() { $("#drawer").classList.remove("show"); $("#scrim").classList.remove("show"); }
+$("#openSettings").onclick = openSettings; $("#closeSettings").onclick = closeSettings;
+$("#scrim").onclick = () => { if ($("#modal").classList.contains("show")) { $("#modal").classList.remove("wide"); closeModal(); } else closeSettings(); };
+$("#saveSettings").onclick = async () => {
+  const s = st.settings, g = id => $("#" + id).value.trim();
+  s.dropPath = {dropbox: g("s_dropDropbox").replace(/\/+$/, ""), onedrive: g("s_dropOnedrive").replace(/\/+$/, "")};
+  s.lucidRoot = volumeOf(s.dropPath.dropbox || s.dropPath.onedrive);
+  s.lanes.dropbox.remote = g("s_dbxRemote"); s.lanes.dropbox.path = g("s_dbxPath");
+  s.lanes.onedrive.remote = g("s_odRemote"); s.lanes.onedrive.path = g("s_odPath"); s.lanes.onedrive.enabled = $("#s_odEnabled").checked;
+  s.reportsFolder = g("s_reports") || "_Archive Reports";
+  s.speed = {start: g("s_wStart") || "08:00", end: g("s_wEnd") || "19:00", work: g("s_wLimit"), off: g("s_oLimit"), weekends: $("#s_weekends").checked};
+  s.transfers = Number(g("s_transfers")); s.parallel = Number(g("s_parallel")); s.samples = Number(g("s_samples")); s.verify = g("s_verify");
+  s.autoStart = $("#s_auto").checked;
+  s.money = {llPerTB: +g("s_llPer") || 600, llTargetTB: +g("s_llTarget") || 45, dbxPerTB: +g("s_dbxPer") || 120, dbxFreeTB: +g("s_dbxFree") || 0};
+  try { await saveSettings(); toast("Settings saved"); log("Settings saved"); closeSettings(); st.reports = {dropbox: new Map(), onedrive: new Map()}; st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
+  catch (e) { toast("Couldn't save: " + e.message); }
+};
+$("#quitEngine").onclick = async () => {
+  showModal();
+  $("#modal").innerHTML = `<h3>Stop the engine?</h3><p>Any transfer in progress stops. Next time you open Zaki Rose Archive it picks up where it left off; files already copied aren't sent again.</p>
+    <div class="acts"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn danger" id="doQuit">Stop engine</button></div>`;
+  $("#doQuit").onclick = async () => { await rc("core/quit").catch(() => {}); closeModal(); closeSettings(); };
+};
+$("#engLogBtn").onclick = async () => {
+  const box = $("#engLog");
+  if (!box.hidden) { box.hidden = true; $("#engLogBtn").textContent = "Show engine log"; return; }
+  try {
+    const url = serveUrl(st.env.supportDir + "/logs", "engine.log");
+    const head = await afetch(url, {method: "HEAD"}); const size = Number(head.headers.get("Content-Length")) || 0;
+    const r = await afetch(url, {headers: {Range: `bytes=${Math.max(0, size - 40000)}-`}, cache: "no-store"});
+    const lines = (await r.text()).split("\n").filter(Boolean).slice(-80);
+    box.textContent = lines.join("\n") || "Log is empty.";
+  } catch (e) { box.textContent = "Couldn't read the engine log: " + e.message; }
+  box.hidden = false; box.scrollTop = box.scrollHeight; $("#engLogBtn").textContent = "Hide engine log";
+};
+$("#rescan").onclick = async () => { await scan(); render(); toast("Drop folders checked"); };
+$("#notifBtn").onclick = async () => { try { const p = await Notification.requestPermission(); toast(p === "granted" ? "Notifications on" : "Notifications are blocked in this browser"); updNotifBtn(); } catch {} };
+function updNotifBtn() { const on = window.Notification && Notification.permission === "granted"; $("#notifBtn").style.display = on ? "none" : ""; }
+
+/* ---------- folder picker ---------- */
+const PERM_HINT = `If Finder shows folders here but this list is empty, macOS is blocking the app from reading LucidLink.
+  Open <b>System Settings → Privacy &amp; Security → Full Disk Access</b>, turn on <b>Zaki Rose Archive</b> (use + to add it from Applications if it isn't listed),
+  then open Settings here, click <b>Stop engine</b>, and reopen the app.`;
+let pk = null;
+document.addEventListener("click", e => { const b = e.target.closest("[data-pick]"); if (!b) return; const [kind, lane] = b.dataset.pick.split("|"); openPicker(kind, lane); });
+function openPicker(kind, lane) {
+  const inputId = {"drop|dropbox": "s_dropDropbox", "drop|onedrive": "s_dropOnedrive", "dest|dropbox": "s_dbxPath", "dest|onedrive": "s_odPath"}[kind + "|" + lane];
+  const local = kind === "drop", remote = local ? null : $(lane === "dropbox" ? "#s_dbxRemote" : "#s_odRemote").value;
+  if (!local && !st.remotes.includes(remote)) { toast(`“${remote}” isn't connected in rclone yet`); return; }
+  const cur = $("#" + inputId).value.trim();
+  pk = {kind, lane, local, remote, inputId, rel: (cur || (local ? "/Volumes" : "")).replace(/^\/+|\/+$/g, ""), adding: false};
+  $("#modal").classList.add("wide"); showModal(); pickRender();
+}
+const pickFs = () => pk.local ? "/" : pk.lane === "dropbox" ? pk.remote + ":/" : pk.remote + ":";
+async function pickRender(goParentOnError = true) {
+  const segs = pk.rel ? pk.rel.split("/") : [];
+  const rootLabel = pk.local ? "Computer" : LANES[pk.lane];
+  const crumbs = [`<button data-rel="">${esc(rootLabel)}</button>`].concat(segs.map((x, i) => `<span>›</span><button data-rel="${esc(segs.slice(0, i + 1).join("/"))}">${esc(x)}</button>`)).join("");
+  const canChoose = pk.local ? segs.length >= 2 || (segs.length === 1 && segs[0] !== "Volumes") : true;
+  const here = segs.length ? segs[segs.length - 1] : rootLabel;
+  $("#modal").innerHTML = `<h3>${pk.kind === "drop" ? "Choose the drop folder on LucidLink" : "Choose the archive folder in " + esc(LANES[pk.lane])}</h3>
+    <div class="crumbs" id="pkCrumbs">${crumbs}</div>
+    <div class="plist" id="pkList"><div class="msg">Loading…</div></div>
+    <div class="newf" id="pkNew" ${pk.adding ? "" : "hidden"}><input id="pkNewName" placeholder="New folder name"><button class="btn" id="pkMk">Create</button></div>
+    <div class="acts"><button class="btn" id="pkAdd" style="margin-right:auto">New folder</button>
+      <button class="btn" id="pkCancel">Cancel</button>
+      <button class="btn primary" id="pkChoose" ${canChoose ? "" : "disabled"}>Choose “${esc(here)}”</button></div>`;
+  $("#pkCrumbs").onclick = e => { const b = e.target.closest("button"); if (b) { pk.rel = b.dataset.rel; pickRender(); } };
+  $("#pkCancel").onclick = () => { $("#modal").classList.remove("wide"); closeModal(); };
+  $("#pkAdd").onclick = () => { pk.adding = true; $("#pkNew").hidden = false; $("#pkNewName").focus(); };
+  const mk = async () => {
+    const n = $("#pkNewName").value.trim().replace(/\//g, "-"); if (!n) return;
+    try { await rc("operations/mkdir", {fs: pickFs(), remote: pk.rel ? pk.rel + "/" + n : n}); pk.rel = pk.rel ? pk.rel + "/" + n : n; pk.adding = false; pickRender(); }
+    catch (e) { toast("Couldn't create folder: " + e.message); }
+  };
+  $("#pkMk").onclick = mk; $("#pkNewName").onkeydown = e => { if (e.key === "Enter") mk(); };
+  $("#pkChoose").onclick = () => {
+    $("#" + pk.inputId).value = pk.local || pk.lane === "dropbox" ? "/" + pk.rel : pk.rel;
+    $("#modal").classList.remove("wide"); closeModal();
+  };
+  try {
+    const r = await rc("operations/list", {fs: pickFs(), remote: pk.rel, opt: {dirsOnly: true}});
+    const names = (r.list || []).map(x => x.Name).filter(n => !n.startsWith(".")).sort((a, b) => a.localeCompare(b, undefined, {numeric: true, sensitivity: "base"}));
+    $("#pkList").innerHTML = names.length ? names.map(n => `<button data-n="${esc(n)}"><span class="fi"></span>${esc(n)}</button>`).join("")
+      : `<div class="msg">No folders in here.</div>${pk.local && /^Volumes\/[^/]+/.test(pk.rel) ? `<div class="hintbox" style="margin:0 14px">${PERM_HINT}</div>` : ""}`;
+    $("#pkList").onclick = e => { const b = e.target.closest("button"); if (b) { pk.rel = pk.rel ? pk.rel + "/" + b.dataset.n : b.dataset.n; pk.adding = false; pickRender(); } };
+  } catch (e) {
+    if (goParentOnError && pk.rel && /not found|no such file/i.test(e.message)) { pk.rel = pk.rel.split("/").slice(0, -1).join("/"); return pickRender(true); }
+    $("#pkList").innerHTML = `<div class="msg bad">Couldn't open this folder: ${esc(e.message)}</div>${/permit|denied/i.test(e.message) ? `<div class="hintbox" style="margin:0 14px">${PERM_HINT}</div>` : ""}`;
+  }
+}
+
+/* ---------- main loop ---------- */
+let ticking = false, tickN = 0;
+async function tick() {
+  if (ticking) return; ticking = true;
+  try {
+    const t = await rc("core/stats", {}); // also our heartbeat
+    if (!st.online) { st.online = true; log("Engine connected", "g"); await scan(); await refreshAbout(); await applySpeed(); }
+    $("#engDot").className = "dot on"; $("#engTxt").textContent = "Engine running";
+    await refreshJobs();
+    st.stats.clear();
+    for (const j of st.jobs) if (!j.status.finished) { try { st.stats.set(j.group, await rc("core/stats", {group: j.group})); } catch {} }
+    st.totalSpeed = (t.transferring || []).reduce((a, x) => a + (x.speedAvg || 0), 0);
+    try { st.limit = (await rc("core/bwlimit")).bytesPerSecond; } catch {}
+    if (Date.now() - st.lastScan > 20000) await scan();
+    if (Date.now() - st.lastAbout > 300000) await refreshAbout();
+    if (tickN++ % 20 === 0) { const want = currentLimit(st.settings.speed); await rc("core/bwlimit", {rate: want}).catch(() => {}); }
+    await advance();
+  } catch (e) {
+    if (st.online) log("Lost connection to the engine", "e");
+    st.online = false; $("#engDot").className = "dot off"; $("#engTxt").textContent = "Engine stopped · reopen the app";
+  }
+  ticking = false; render();
+}
+(async function boot() {
+  try { st.env = await (await afetch("env.json", {cache: "no-store"})).json(); } catch { st.env = {}; }
+  await loadSettings(); updNotifBtn();
+  if (window.Notification && Notification.permission === "default") $("#notifBtn").textContent = "Turn on notifications";
+  render(); await tick(); setInterval(tick, 3000);
+  if (!dropFs("dropbox")) openSettings();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+#!/bin/bash
+# Zaki Rose Archive — starts the rclone engine (if it isn't already running) and opens the dashboard.
+CONTENTS="$(cd "$(dirname "$0")/.." && pwd)"
+UI="$CONTENTS/Resources/ui"
+SUP="$HOME/Library/Application Support/Zaki Rose Archive"
+PORT=5572
+mkdir -p "$SUP/logs"
+
+alert() { osascript -e "display alert \"Zaki Rose Archive\" message \"$1\" as critical" >/dev/null 2>&1; }
+
+RCLONE=""
+for c in /usr/local/bin/rclone /opt/homebrew/bin/rclone "$HOME/bin/rclone"; do [ -x "$c" ] && RCLONE="$c" && break; done
+if [ -z "$RCLONE" ]; then alert "rclone isn't installed. In Terminal run: sudo -v ; curl https://rclone.org/install.sh | sudo bash"; exit 1; fi
+
+# private engine password, made once
+if [ ! -s "$SUP/.engine" ]; then (umask 077; openssl rand -hex 16 > "$SUP/.engine"); fi
+PASS="$(cat "$SUP/.engine")"
+KEY="$(printf 'zr:%s' "$PASS" | base64)"
+
+# tell the dashboard where its settings live
+printf '{"supportDir":"%s","appVersion":"1.0"}\n' "$SUP" > "$UI/env.json"
+
+running() { curl -s -f -m 2 -u "zr:$PASS" -X POST "http://127.0.0.1:$PORT/core/version" >/dev/null 2>&1; }
+
+if ! running; then
+  BW="$(plutil -extract bwlimit raw -o - "$SUP/settings.json" 2>/dev/null)"
+  [ -z "$BW" ] && BW="00:00,off 23:59,off"
+  nohup "$RCLONE" rcd \
+    --rc-addr "127.0.0.1:$PORT" --rc-user zr --rc-pass "$PASS" \
+    --rc-files "$UI" --rc-serve --rc-job-expire-duration 2h \
+    --bwlimit "$BW" --transfers 8 --checkers 16 \
+    --dropbox-batch-mode sync --dropbox-chunk-size 64Mi \
+    --retries 5 --low-level-retries 20 \
+    --log-file "$SUP/logs/engine.log" --log-level INFO \
+    >/dev/null 2>&1 &
+  PID=$!
+  # keep the Mac awake (not the screen) while the engine runs
+  nohup caffeinate -i -w "$PID" >/dev/null 2>&1 &
+  for i in $(seq 1 40); do running && break; sleep 0.25; done
+  if ! running; then alert "The transfer engine didn't start. Details are in: $SUP/logs/engine.log"; exit 1; fi
+fi
+
+URL="http://zr:$PASS@127.0.0.1:$PORT/#k=$KEY"
+if [ -d "/Applications/Google Chrome.app" ]; then
+  open -na "Google Chrome" --args --app="$URL" --window-size=1360,960
+else
+  open "$URL"
+fi

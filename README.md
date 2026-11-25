@@ -1,6 +1,6 @@
 # Zaki Rose Archive
 
-Moves finished projects off LucidLink into Dropbox (or OneDrive) in the background, verifies every file, and only removes the LucidLink copy after you confirm.
+Moves finished projects off LucidLink into Dropbox (or Google Drive) in the background, verifies every file, and only removes the LucidLink copy after you confirm.
 
 ## Install or update (Mac)
 

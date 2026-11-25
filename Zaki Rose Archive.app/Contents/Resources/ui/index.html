@@ -223,13 +223,14 @@ td{padding:10px;border-bottom:1px solid var(--line)}
     <div class="pickrow"><input id="s_dbxPath" placeholder="/ZR Team Folder/LucidLinkArchive"><button type="button" class="btn" data-pick="dest|dropbox">Find folder…</button></div></div>
   <div class="f"><label>Dropbox connection (from rclone)</label><select id="s_dbxRemote"></select></div>
 
-  <h4>OneDrive</h4>
-  <div class="chk"><input type="checkbox" id="s_odEnabled"><label for="s_odEnabled">Also use OneDrive</label></div>
+  <h4>Google Drive</h4>
+  <div class="chk"><input type="checkbox" id="s_gdEnabled"><label for="s_gdEnabled">Also use Google Drive</label></div>
+  <div class="hint" style="margin:-4px 0 12px">Google lets each account upload about 750 GB a day. When that's hit, the project pauses with a note and you click Try again the next day.</div>
   <div class="f"><label>Drop folder on LucidLink</label>
-    <div class="pickrow"><input id="s_dropOnedrive" placeholder="/Volumes/blue/OneDriveArchive"><button type="button" class="btn" data-pick="drop|onedrive">Find folder…</button></div></div>
-  <div class="f"><label>Archive into this OneDrive folder</label>
-    <div class="pickrow"><input id="s_odPath" placeholder="Archive"><button type="button" class="btn" data-pick="dest|onedrive">Find folder…</button></div></div>
-  <div class="f"><label>OneDrive connection (from rclone)</label><select id="s_odRemote"></select></div>
+    <div class="pickrow"><input id="s_dropGdrive" placeholder="/Volumes/blue/GoogleDriveArchive"><button type="button" class="btn" data-pick="drop|gdrive">Find folder…</button></div></div>
+  <div class="f"><label>Archive into this Google Drive folder</label>
+    <div class="pickrow"><input id="s_gdPath" placeholder="LucidLink Archive"><button type="button" class="btn" data-pick="dest|gdrive">Find folder…</button></div></div>
+  <div class="f"><label>Google Drive connection (from rclone)</label><select id="s_gdRemote"></select></div>
 
   <h4>Reports</h4>
   <div class="f"><label>Reports folder (inside each archive folder)</label><input id="s_reports"></div>
@@ -302,16 +303,16 @@ document.addEventListener("click", e => { const a = e.target.closest("[data-repo
   const [lane, name] = JSON.parse(a.dataset.report); openReport(reportsFs(lane), name + ".html"); });
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const LANES = {dropbox: "Dropbox", onedrive: "OneDrive"};
+const LANES = {dropbox: "Dropbox", gdrive: "Google Drive"};
 const FILTER = {ExcludeRule: [".DS_Store", "._*", "Thumbs.db", "desktop.ini", "Icon\r", ".lucid*"]};
 const MEDIA_EXT = /\.(mov|mp4|m4v|mxf|mkv|avi|mts|m2ts|r3d|braw|ari|crm|wav|aif|aiff|mp3|m4a|dng|exr|dpx)$/i;
 const LIMITS = ["off","200M","100M","50M","25M","10M","5M"];
 const LIMIT_LABEL = {off:"No limit","200M":"200 MB/s","100M":"100 MB/s","50M":"50 MB/s","25M":"25 MB/s","10M":"10 MB/s","5M":"5 MB/s"};
 
 const DEFAULTS = {
-  lucidRoot: "", drop: {dropbox: "ForDropbox", onedrive: "ForOneDrive"}, dropPath: {dropbox: "", onedrive: ""},
+  lucidRoot: "", drop: {dropbox: "ForDropbox", gdrive: "ForGoogleDrive"}, dropPath: {dropbox: "", gdrive: ""},
   lanes: {dropbox: {remote: "Dropbox", path: "/Archive", enabled: true},
-          onedrive: {remote: "OneDrive", path: "Archive", enabled: false}},
+          gdrive: {remote: "GoogleDrive", path: "", enabled: false}},
   reportsFolder: "_Archive Reports",
   transfers: 8, parallel: 1, autoStart: true, verify: "full", samples: 6,
   speed: {start: "08:00", end: "19:00", work: "25M", off: "off", weekends: true},
@@ -321,8 +322,8 @@ const DEFAULTS = {
 
 const st = {
   env: {}, settings: null, online: false, remotes: [],
-  drops: {dropbox: [], onedrive: []},           // folder names in each drop folder
-  reports: {dropbox: new Map(), onedrive: new Map()}, // name -> report
+  drops: {dropbox: [], gdrive: []},           // folder names in each drop folder
+  reports: {dropbox: new Map(), gdrive: new Map()}, // name -> report
   reportMods: new Map(), sizes: new Map(),      // key -> {count,bytes}
   busy: new Set(), phase: new Map(), errors: new Map(),
   jobs: loadJobs(), stats: new Map(), totalSpeed: 0, limit: null,
@@ -553,7 +554,7 @@ async function finishVerify(lane, name, verJob) {
   const out = verJob.status.output || {};
   const check = s.verify === "full"
     ? {mode: "full", ok: !!out.success, hashType: out.hashType, differ: out.differ || [], missing: out.missingOnDst || [], errors: out.error || [], note: out.status || verJob.status.error}
-    : {mode: "quick", ok: verJob.status.success, hashType: "upload-time " + (lane === "dropbox" ? "dropbox" : "quickxor"), differ: [], missing: [], errors: [], note: "Fingerprints checked during upload"};
+    : {mode: "quick", ok: verJob.status.success, hashType: "upload-time " + (lane === "dropbox" ? "dropbox" : "md5"), differ: [], missing: [], errors: [], note: "Fingerprints checked during upload"};
   const sizeOk = srcSize.count === dstSize.count && srcSize.bytes === dstSize.bytes;
   const media = s.samples > 0 ? await mediaCheck(src, dst, Number(s.samples), key) : [];
   const mediaOk = media.every(m => m.ok !== false);
@@ -664,6 +665,14 @@ ${r.check.differ.length ? `<br>Different: ${r.check.differ.map(esc).join(", ")}`
 </body></html>`;
 }
 
+function friendlyErr(msg) {
+  if (!msg) return msg;
+  if (/upload limit|userRateLimitExceeded|exceeded.*quota|quotaExceeded/i.test(msg)) return "Google Drive's daily upload limit (about 750 GB) was reached. Everything copied so far is kept. Click Try again tomorrow and it picks up where it left off.";
+  if (/insufficient.?space|storage.?quota|over.?quota|storageQuotaExceeded|insufficient_space/i.test(msg)) return "The destination is out of space. Free some up or pick another archive folder, then click Try again.";
+  if (/not permitted/i.test(msg)) return "macOS blocked access to this folder. " + msg;
+  return msg;
+}
+
 /* ---------- actions ---------- */
 async function stopProject(lane, name) {
   const key = lane + "|" + name;
@@ -747,7 +756,7 @@ function render() {
   }
   $("#pipeSub").textContent = items.length ? `${items.length} project${items.length > 1 ? "s" : ""}` : "";
   $("#pipeline").innerHTML = items.length ? items.map(cardHtml).join("") : (dropFs("dropbox") ? `<div class="empty"><div class="big">Nothing waiting</div>
-    Move a project folder into <span class="path">${esc(baseName(dropFs("dropbox")))}</span>${s.lanes.onedrive.enabled && dropFs("onedrive") ? ` or <span class="path">${esc(baseName(dropFs("onedrive")))}</span>` : ""} on LucidLink and it'll show up here.
+    Move a project folder into <span class="path">${esc(baseName(dropFs("dropbox")))}</span>${s.lanes.gdrive.enabled && dropFs("gdrive") ? ` or <span class="path">${esc(baseName(dropFs("gdrive")))}</span>` : ""} on LucidLink and it'll show up here.
 </div>` : "");
   // KPIs
   let queued = 0, qn = 0;
@@ -852,7 +861,7 @@ function cardHtml(it) {
     <div class="ctop"><span class="pname">${esc(name)}</span><span class="dest">→ ${esc(LANES[lane])}</span>
       <span class="badge b-${state}">${LABEL[state] || state}</span><div class="cact">${btns.join("")}</div></div>
     ${state === "paused" || state === "attention" ? "" : `<div class="steps">${steps}</div>`}
-    ${body}${err || copyErr ? `<div class="err">${esc(err || copyErr)}</div>` : ""}</div>`;
+    ${body}${err || copyErr ? `<div class="err">${esc(friendlyErr(err || copyErr))}</div>` : ""}</div>`;
 }
 function renderSetup() {
   const s = st.settings, need = [];
@@ -890,13 +899,13 @@ async function openSettings() {
   fillLimits($("#s_wLimit")); fillLimits($("#s_oLimit"));
   const opts = r => (st.remotes.length ? st.remotes : [r]).map(x => `<option ${x === r ? "selected" : ""}>${esc(x)}</option>`).join("");
   $("#s_dbxRemote").innerHTML = opts(s.lanes.dropbox.remote);
-  $("#s_odRemote").innerHTML = opts(s.lanes.onedrive.remote) + (st.remotes.includes(s.lanes.onedrive.remote) ? "" : `<option selected>${esc(s.lanes.onedrive.remote)}</option>`);
-  const v = {s_dropDropbox: dropFs("dropbox"), s_dropOnedrive: dropFs("onedrive"), s_dbxPath: s.lanes.dropbox.path,
-    s_odPath: s.lanes.onedrive.path, s_reports: s.reportsFolder, s_wStart: s.speed.start, s_wEnd: s.speed.end, s_wLimit: s.speed.work,
+  $("#s_gdRemote").innerHTML = opts(s.lanes.gdrive.remote) + (st.remotes.includes(s.lanes.gdrive.remote) ? "" : `<option selected>${esc(s.lanes.gdrive.remote)}</option>`);
+  const v = {s_dropDropbox: dropFs("dropbox"), s_dropGdrive: dropFs("gdrive"), s_dbxPath: s.lanes.dropbox.path,
+    s_gdPath: s.lanes.gdrive.path, s_reports: s.reportsFolder, s_wStart: s.speed.start, s_wEnd: s.speed.end, s_wLimit: s.speed.work,
     s_oLimit: s.speed.off, s_transfers: String(s.transfers), s_parallel: String(s.parallel), s_samples: String(s.samples), s_verify: s.verify,
     s_llPer: s.money.llPerTB, s_llTarget: s.money.llTargetTB, s_dbxPer: s.money.dbxPerTB, s_dbxFree: s.money.dbxFreeTB};
   for (const k in v) $("#" + k).value = v[k];
-  $("#s_odEnabled").checked = s.lanes.onedrive.enabled; $("#s_weekends").checked = s.speed.weekends; $("#s_auto").checked = s.autoStart;
+  $("#s_gdEnabled").checked = s.lanes.gdrive.enabled; $("#s_weekends").checked = s.speed.weekends; $("#s_auto").checked = s.autoStart;
   $("#drawer").classList.add("show"); $("#scrim").classList.add("show");
 }
 window.openSettings = openSettings;
@@ -905,16 +914,16 @@ $("#openSettings").onclick = openSettings; $("#closeSettings").onclick = closeSe
 $("#scrim").onclick = () => { if ($("#modal").classList.contains("show")) { $("#modal").classList.remove("wide"); closeModal(); } else closeSettings(); };
 $("#saveSettings").onclick = async () => {
   const s = st.settings, g = id => $("#" + id).value.trim();
-  s.dropPath = {dropbox: g("s_dropDropbox").replace(/\/+$/, ""), onedrive: g("s_dropOnedrive").replace(/\/+$/, "")};
-  s.lucidRoot = volumeOf(s.dropPath.dropbox || s.dropPath.onedrive);
+  s.dropPath = {dropbox: g("s_dropDropbox").replace(/\/+$/, ""), gdrive: g("s_dropGdrive").replace(/\/+$/, "")};
+  s.lucidRoot = volumeOf(s.dropPath.dropbox || s.dropPath.gdrive);
   s.lanes.dropbox.remote = g("s_dbxRemote"); s.lanes.dropbox.path = g("s_dbxPath");
-  s.lanes.onedrive.remote = g("s_odRemote"); s.lanes.onedrive.path = g("s_odPath"); s.lanes.onedrive.enabled = $("#s_odEnabled").checked;
+  s.lanes.gdrive.remote = g("s_gdRemote"); s.lanes.gdrive.path = g("s_gdPath"); s.lanes.gdrive.enabled = $("#s_gdEnabled").checked;
   s.reportsFolder = g("s_reports") || "_Archive Reports";
   s.speed = {start: g("s_wStart") || "08:00", end: g("s_wEnd") || "19:00", work: g("s_wLimit"), off: g("s_oLimit"), weekends: $("#s_weekends").checked};
   s.transfers = Number(g("s_transfers")); s.parallel = Number(g("s_parallel")); s.samples = Number(g("s_samples")); s.verify = g("s_verify");
   s.autoStart = $("#s_auto").checked;
   s.money = {llPerTB: +g("s_llPer") || 600, llTargetTB: +g("s_llTarget") || 45, dbxPerTB: +g("s_dbxPer") || 120, dbxFreeTB: +g("s_dbxFree") || 0};
-  try { await saveSettings(); toast("Settings saved"); log("Settings saved"); closeSettings(); st.reports = {dropbox: new Map(), onedrive: new Map()}; st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
+  try { await saveSettings(); toast("Settings saved"); log("Settings saved"); closeSettings(); st.reports = {dropbox: new Map(), gdrive: new Map()}; st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
   catch (e) { toast("Couldn't save: " + e.message); }
 };
 $("#quitEngine").onclick = async () => {
@@ -946,8 +955,8 @@ const permHint = () => `macOS is blocking the transfer engine from reading Lucid
 let pk = null;
 document.addEventListener("click", e => { const b = e.target.closest("[data-pick]"); if (!b) return; const [kind, lane] = b.dataset.pick.split("|"); openPicker(kind, lane); });
 function openPicker(kind, lane) {
-  const inputId = {"drop|dropbox": "s_dropDropbox", "drop|onedrive": "s_dropOnedrive", "dest|dropbox": "s_dbxPath", "dest|onedrive": "s_odPath"}[kind + "|" + lane];
-  const local = kind === "drop", remote = local ? null : $(lane === "dropbox" ? "#s_dbxRemote" : "#s_odRemote").value;
+  const inputId = {"drop|dropbox": "s_dropDropbox", "drop|gdrive": "s_dropGdrive", "dest|dropbox": "s_dbxPath", "dest|gdrive": "s_gdPath"}[kind + "|" + lane];
+  const local = kind === "drop", remote = local ? null : $(lane === "dropbox" ? "#s_dbxRemote" : "#s_gdRemote").value;
   if (!local && !st.remotes.includes(remote)) { toast(`“${remote}” isn't connected in rclone yet`); return; }
   const cur = $("#" + inputId).value.trim();
   pk = {kind, lane, local, remote, inputId, rel: (cur || (local ? "/Volumes" : "")).replace(/^\/+|\/+$/g, ""), adding: false};

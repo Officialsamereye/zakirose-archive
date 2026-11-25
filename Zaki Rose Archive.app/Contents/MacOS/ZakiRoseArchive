@@ -35,6 +35,7 @@ if ! running; then
     --rc-files "$UI" --rc-serve --rc-job-expire-duration 2h
     --bwlimit "$BW" --transfers 8 --checkers 16
     --dropbox-batch-mode sync --dropbox-chunk-size 64Mi
+    --drive-chunk-size 64Mi --drive-stop-on-upload-limit
     --retries 5 --low-level-retries 20
     --log-file "$SUP/logs/engine.log" --log-level INFO)
   {

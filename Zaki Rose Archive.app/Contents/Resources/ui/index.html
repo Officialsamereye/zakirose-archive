@@ -197,6 +197,12 @@ td{padding:10px;border-bottom:1px solid var(--line)}
     <div id="pipeline"></div>
   </div>
 
+  <div class="sec" id="bkSec" hidden>
+    <div class="sech"><h2>Google Drive backup</h2><span class="sub">Dropbox → Google Drive, in daily batches</span></div>
+    <div id="bkWin" class="nowbar" style="margin:0 0 12px"></div>
+    <div id="bkList"></div>
+  </div>
+
   <div class="sec">
     <div class="sech"><h2>Archived</h2><span class="sub">Verified, confirmed and removed from LucidLink</span></div>
     <div id="history"></div>
@@ -223,14 +229,22 @@ td{padding:10px;border-bottom:1px solid var(--line)}
     <div class="pickrow"><input id="s_dbxPath" placeholder="/ZR Team Folder/LucidLinkArchive"><button type="button" class="btn" data-pick="dest|dropbox">Find folder…</button></div></div>
   <div class="f"><label>Dropbox connection (from rclone)</label><select id="s_dbxRemote"></select></div>
 
-  <h4>Google Drive</h4>
-  <div class="chk"><input type="checkbox" id="s_gdEnabled"><label for="s_gdEnabled">Also use Google Drive</label></div>
-  <div class="hint" style="margin:-4px 0 12px">Google lets each account upload about 750 GB a day. When that's hit, the project pauses with a note and you click Try again the next day.</div>
+  <h4>Google Drive backup</h4>
+  <div class="chk"><input type="checkbox" id="s_bkEnabled"><label for="s_bkEnabled">After a project is verified in Dropbox, also back it up to Google Drive</label></div>
+  <div class="hint" style="margin:-4px 0 12px">Copies go Dropbox → Google Drive in daily batches that stay under Google's ~750 GB/day upload limit, then continue 24 hours later on their own. LucidLink can be cleared as soon as Dropbox is verified.</div>
+  <div class="f"><label>Back up into this Google Drive folder</label>
+    <div class="pickrow"><input id="s_bkPath" placeholder="LucidLink Archive"><button type="button" class="btn" data-pick="dest|backup">Find folder…</button></div></div>
+  <div class="row">
+    <div class="f"><label>Upload per 24 hours</label><select id="s_bkDaily"><option value="300">300 GB</option><option value="500">500 GB</option><option value="700">700 GB (recommended)</option></select></div>
+    <div class="f"><label>Google Drive connection (from rclone)</label><select id="s_gdRemote"></select></div>
+  </div>
+
+  <h4>Google Drive drop folder (optional)</h4>
+  <div class="chk"><input type="checkbox" id="s_gdEnabled"><label for="s_gdEnabled">Also send some projects straight to Google Drive from their own drop folder</label></div>
   <div class="f"><label>Drop folder on LucidLink</label>
     <div class="pickrow"><input id="s_dropGdrive" placeholder="/Volumes/blue/GoogleDriveArchive"><button type="button" class="btn" data-pick="drop|gdrive">Find folder…</button></div></div>
   <div class="f"><label>Archive into this Google Drive folder</label>
     <div class="pickrow"><input id="s_gdPath" placeholder="LucidLink Archive"><button type="button" class="btn" data-pick="dest|gdrive">Find folder…</button></div></div>
-  <div class="f"><label>Google Drive connection (from rclone)</label><select id="s_gdRemote"></select></div>
 
   <h4>Reports</h4>
   <div class="f"><label>Reports folder (inside each archive folder)</label><input id="s_reports"></div>
@@ -314,6 +328,7 @@ const DEFAULTS = {
   lanes: {dropbox: {remote: "Dropbox", path: "/Archive", enabled: true},
           gdrive: {remote: "GoogleDrive", path: "", enabled: false}},
   reportsFolder: "_Archive Reports",
+  backup: {enabled: false, path: "", dailyGB: 700},
   transfers: 8, parallel: 1, autoStart: true, verify: "full", samples: 6,
   speed: {start: "08:00", end: "19:00", work: "25M", off: "off", weekends: true},
   money: {llPerTB: 600, llTargetTB: 45, dbxPerTB: 120, dbxFreeTB: 10},
@@ -327,6 +342,7 @@ const st = {
   reportMods: new Map(), sizes: new Map(),      // key -> {count,bytes}
   busy: new Set(), phase: new Map(), errors: new Map(),
   jobs: loadJobs(), stats: new Map(), totalSpeed: 0, limit: null,
+  bw: {start: null, used: 0},
   prevState: new Map(), log: [], llDu: null, dbxAbout: null, lastScan: 0, lastAbout: 0
 };
 
@@ -376,6 +392,7 @@ function loadJobs() { try { return JSON.parse(localStorage.getItem("zra.jobs") |
 function saveJobs() { try { localStorage.setItem("zra.jobs", JSON.stringify(st.jobs.slice(-200))); } catch {} }
 async function startJob(kind, lane, name, path, params) {
   const group = `zra|${kind}|${lane}|${name}`;
+  await rc("core/stats-delete", {group}).catch(() => {}); // fresh counters for each run
   const r = await rc(path, {...params, _async: true, _group: group});
   const s = await rc("job/status", {jobid: r.jobid});
   st.jobs.push({id: r.jobid, exec: s.executeId, group, kind, lane, name, status: s});
@@ -576,6 +593,72 @@ async function writeReport(lane, r) {
   st.reports[lane].set(r.project, r);
 }
 
+/* ---------- Google Drive backup chain (Dropbox → Google Drive, daily batches) ---------- */
+const DAY = 864e5;
+const bkRemote = () => st.settings.lanes.gdrive.remote;
+const backupFs = () => `${bkRemote()}:${st.settings.backup.path || ""}`;
+const bkReady = () => st.settings.backup.enabled && st.remotes.includes(bkRemote()) && laneReady("dropbox");
+function bwNow() { const w = st.bw; if (w.start && Date.now() - w.start >= DAY) { w.start = null; w.used = 0; } return w; }
+const bwBudget = () => Number(st.settings.backup.dailyGB || 700) * 1e9;
+const bwRemaining = () => bwBudget() - bwNow().used;
+const bwSpent = () => bwRemaining() < Math.min(5e9, bwBudget() * 0.01);
+const bwResetAt = () => st.bw.start ? st.bw.start + DAY : null;
+async function saveBw() { await uploadText(st.env.supportDir, "backup-window.json", JSON.stringify(st.bw)); }
+async function loadBw() { try { const r = await afetch(serveUrl(st.env.supportDir, "backup-window.json"), {cache: "no-store"}); if (r.ok) st.bw = await r.json(); } catch {} }
+function bkLiveBytes() {
+  let n = 0; for (const j of st.jobs) if (j.kind === "backup" && !j.status.finished) n += (st.stats.get(j.group) || {}).bytes || 0; return n;
+}
+async function advanceBackups() {
+  if (!bkReady()) return;
+  const reps = [...st.reports.dropbox.values()].filter(r => r.status === "passed");
+  let running = reps.some(r => { const j = latestJob("backup", "dropbox", r.project); return j && !j.status.finished; });
+  for (const r of reps) {
+    const key = "backup|" + r.project; if (st.busy.has(key)) continue;
+    const j = latestJob("backup", "dropbox", r.project), b = r.backup || {};
+    if (b.status === "done") continue;
+    if (j && j.status.finished && b.job !== j.id + "@" + j.exec) { run(key, () => finishBackup(r, j)); continue; }
+    if (j && !j.status.finished) continue;
+    if (running || b.status === "failed") continue;
+    if (bwSpent()) continue; // wait for the next 24-hour window
+    running = true; run(key, () => startBackup(r));
+  }
+}
+async function startBackup(r) {
+  const w = bwNow(); if (!w.start) { w.start = Date.now(); await saveBw(); }
+  const src = join(laneFs("dropbox"), r.project), dst = join(backupFs(), r.project);
+  await rc("operations/mkdir", {fs: backupFs(), remote: ""}).catch(() => {});
+  await startJob("backup", "dropbox", r.project, "sync/copy", {srcFs: src, dstFs: dst, _filter: FILTER,
+    _config: {MaxTransfer: Math.max(1, Math.floor(bwRemaining())) + "B", CutoffMode: "soft", Transfers: 4, Checkers: 8}});
+  r.backup = {...(r.backup || {}), status: "copying", dest: dst, startedAt: r.backup?.startedAt || new Date().toISOString(), error: null};
+  await writeReport("dropbox", r);
+  log(`Backing up ${r.project} → Google Drive`, "g");
+}
+async function finishBackup(r, j) {
+  const g = await rc("core/stats", {group: j.group, short: true}).catch(() => ({}));
+  const sent = g.bytes || 0, err = j.status.error || "", tag = j.id + "@" + j.exec;
+  const w = bwNow(); if (!w.start) w.start = Date.now(); w.used += sent; await saveBw();
+  const b = {...(r.backup || {}), job: tag, bytesSent: ((r.backup || {}).bytesSent || 0) + sent};
+  const dst = b.dest || join(backupFs(), r.project);
+  if (j.status.success) {
+    const [a, d] = await Promise.all([rc("operations/size", {fs: join(laneFs("dropbox"), r.project), _filter: FILTER}), rc("operations/size", {fs: dst, _filter: FILTER})]);
+    const ok = a.count === d.count && a.bytes === d.bytes;
+    Object.assign(b, {status: ok ? "done" : "failed", finishedAt: new Date().toISOString(), size: {source: a, destination: d}, error: ok ? null : "File count or size in Google Drive doesn't match Dropbox."});
+    ok ? notify("Backed up", `${r.project} is now also in Google Drive.`) : notify("Backup needs attention", r.project);
+    log(`${r.project}: Google Drive backup ${ok ? "complete" : "didn't match"}`, ok ? "g" : "e");
+  } else if (/max transfer/i.test(err)) {
+    b.status = "waiting"; log(`${r.project}: today's Google Drive amount sent; continues ${when(bwResetAt())}`);
+  } else if (/upload limit|userRateLimitExceeded|quotaExceeded|exceeded.*quota/i.test(err)) {
+    w.used = bwBudget(); await saveBw(); b.status = "waiting"; log(`${r.project}: Google's daily upload limit reached; continues ${when(bwResetAt())}`);
+  } else if (/cancel|stopp/i.test(err)) {
+    b.status = "waiting";
+  } else { b.status = "failed"; b.error = err; notify("Backup needs attention", r.project); log(`${r.project}: backup error: ${err}`, "e"); }
+  r.backup = b; await writeReport("dropbox", r);
+}
+async function retryBackup(name) {
+  const r = st.reports.dropbox.get(name); if (!r) return;
+  r.backup = {...(r.backup || {}), status: "queued", error: null}; await writeReport("dropbox", r); render();
+}
+
 /* ---------- media spot-check (MediaInfo, read straight from both sides) ---------- */
 let MI = null, miQueue = Promise.resolve();
 async function mediainfo() {
@@ -660,6 +743,7 @@ th{color:#7a6e6b;font-weight:500}.k{color:#7a6e6b}.big{font-size:18px;font-weigh
 <tr><td class="k">Fingerprints</td><td>${r.check.mode === "full" ? `Every file re-read and matched by ${esc(r.check.hashType)} hash` : "Checked file-by-file during upload"} <b style="color:${okc(r.check.ok)}">${r.check.ok ? "all match" : esc(r.check.note || "problem")}</b>
 ${r.check.differ.length ? `<br>Different: ${r.check.differ.map(esc).join(", ")}` : ""}${r.check.missing.length ? `<br>Missing on copy: ${r.check.missing.map(esc).join(", ")}` : ""}</td></tr>
 <tr><td class="k">Removed from LucidLink</td><td>${r.confirmedAt ? when(r.confirmedAt) : "Not yet"}</td></tr>
+${r.backup ? `<tr><td class="k">Google Drive backup</td><td>${r.backup.status === "done" ? `✓ ${esc(r.backup.dest)} · ${r.backup.size.destination.count} files, ${fmtB(r.backup.size.destination.bytes)}, ${when(r.backup.finishedAt)}` : esc(r.backup.status)}</td></tr>` : ""}
 </table>
 <h2 style="font:700 20px Figtree,-apple-system,sans-serif;margin-top:30px">MediaInfo spot-check</h2>${media}
 </body></html>`;
@@ -781,15 +865,59 @@ function render() {
     $("#kLLt").style.display = "block"; $("#kLLt").style.left = (tgt / scale * 100) + "%";
   } else { $("#kLL").textContent = "—"; $("#kLLs").textContent = s.lucidRoot ? "Drive doesn't report its size" : "Choose a drop folder in Settings"; }
   // history
-  $("#history").innerHTML = hist.length ? `<div class="tablewrap"><table><tr><th>Project</th><th>Went to</th><th>Size</th><th>Files</th><th>Removed from LucidLink</th><th>Proof</th></tr>
-    ${hist.map(r => `<tr><td>${esc(r.project)}</td><td>${esc(r.destinationName)}</td><td>${fmtB(r.size.source.bytes)}</td><td>${r.size.source.count.toLocaleString()}</td><td>${when(r.confirmedAt)}</td>
+  $("#history").innerHTML = hist.length ? `<div class="tablewrap"><table><tr><th>Project</th><th>Went to</th><th>Size</th><th>Files</th><th>Removed from LucidLink</th>${s.backup.enabled ? "<th>Google Drive</th>" : ""}<th>Proof</th></tr>
+    ${hist.map(r => `<tr><td>${esc(r.project)}</td><td>${esc(r.destinationName)}</td><td>${fmtB(r.size.source.bytes)}</td><td>${r.size.source.count.toLocaleString()}</td><td>${when(r.confirmedAt)}</td>${s.backup.enabled ? `<td>${r.lane !== "dropbox" ? "—" : r.backup?.status === "done" ? '<span class="ok">✓ Backed up</span>' : esc({copying: "Copying", failed: "Needs attention", waiting: "Next batch", queued: "Queued"}[bkState(r)])}</td>` : ""}
     <td><a href="#" data-report='${esc(JSON.stringify([r.lane, r.project]))}'>Report</a></td></tr>`).join("")}</table></div>`
     : `<div class="empty" style="padding:22px">Nothing archived yet.</div>`;
+  renderBackups();
   renderNow(items);
   renderSetup();
 }
+function bkState(r) {
+  const j = latestJob("backup", "dropbox", r.project), b = r.backup || {};
+  if (j && !j.status.finished) return "copying";
+  if (b.status === "done") return "done";
+  if (b.status === "failed") return "failed";
+  if (bwSpent()) return "waiting";
+  return b.status === "waiting" ? "waiting" : "queued";
+}
+function renderBackups() {
+  const s = st.settings, sec = $("#bkSec");
+  sec.hidden = !s.backup.enabled;
+  if (!s.backup.enabled) return;
+  const used = bwNow().used + bkLiveBytes(), budget = bwBudget(), reset = bwResetAt();
+  $("#bkWin").innerHTML = `<div class="top"><span class="lbl">Today</span><span class="ttl">${fmtB(Math.min(used, budget))} of ${fmtB(budget)} sent to Google Drive</span>
+    <span class="spd" style="font-size:14px;font-weight:600">${reset ? (bwSpent() ? "Next batch " : "Window resets ") + when(reset) : "Starts with the next project"}</span></div>
+    <div class="prog"><i style="width:${Math.min(100, used / budget * 100).toFixed(1)}%"></i></div>
+    ${!st.remotes.includes(bkRemote()) ? `<div class="err">“${esc(bkRemote())}” isn't connected in rclone.</div>` : ""}`;
+  const reps = [...st.reports.dropbox.values()].filter(r => r.status === "passed").sort((a, b) => (a.verifiedAt || "").localeCompare(b.verifiedAt || ""));
+  if (!reps.length) { $("#bkList").innerHTML = `<div class="empty" style="padding:22px">Projects show up here once they're verified in Dropbox.</div>`; return; }
+  const LBL = {copying: ["Copying", "b-transferring"], done: ["Backed up", "b-ready"], failed: ["Needs attention", "b-attention"], waiting: ["Waiting for next batch", "b-paused"], queued: ["Queued", "b-queued"]};
+  $("#bkList").innerHTML = `<div class="tablewrap"><table><tr><th>Project</th><th>Size</th><th>Status</th><th>Progress</th><th></th></tr>${reps.map(r => {
+    const stt = bkState(r), j = latestJob("backup", "dropbox", r.project), total = r.size.destination.bytes;
+    const live = stt === "copying" ? (st.stats.get(j.group) || {}) : null;
+    const done = stt === "done" ? total : Math.min(total, ((r.backup || {}).bytesSent || 0) + (live ? live.bytes || 0 : 0));
+    const speed = live ? (live.transferring || []).reduce((a, t) => a + (t.speedAvg || 0), 0) : 0;
+    return `<tr><td>${esc(r.project)}</td><td>${fmtB(total)}</td><td><span class="badge ${LBL[stt][1]}">${LBL[stt][0]}</span></td>
+      <td style="min-width:220px"><div class="prog" style="height:6px"><i style="width:${total ? (done / total * 100).toFixed(1) : 0}%"></i></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">${stt === "done" ? `✓ ${(r.backup.size?.destination.count || 0).toLocaleString()} file${r.backup.size?.destination.count === 1 ? "" : "s"} match${r.backup.size?.destination.count === 1 ? "es" : ""} Dropbox` : `${fmtB(done)} of ${fmtB(total)}${speed ? ` · ${fmtB(speed)}/s` : ""}`}</div>
+      ${stt === "failed" && r.backup.error ? `<div style="font-size:12px;color:var(--bad);margin-top:4px">${esc(friendlyErr(r.backup.error))}</div>` : ""}</td>
+      <td>${stt === "failed" ? `<button class="btn" data-bkretry="${esc(r.project)}">Try again</button>` : ""}</td></tr>`;
+  }).join("")}</table></div>`;
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-bkretry]"); if (b) retryBackup(b.dataset.bkretry); });
 function renderNow(items) {
   const act = items.filter(i => i.state === "transferring" || i.state === "verifying");
+  const bkJob = st.jobs.find(j => j.kind === "backup" && !j.status.finished);
+  if (!act.length && bkJob) {
+    const g = st.stats.get(bkJob.group) || {}, r = st.reports.dropbox.get(bkJob.name), total = r ? r.size.destination.bytes : g.totalBytes || 0;
+    const done = Math.min(total, ((r && r.backup && r.backup.bytesSent) || 0) + (g.bytes || 0)), pct = total ? done / total * 100 : 0;
+    const sp = (g.transferring || []).reduce((a, t) => a + (t.speedAvg || 0), 0);
+    $("#now").className = "nowbar active";
+    $("#now").innerHTML = `<div class="top"><span class="lbl">Now</span><span class="ttl">${esc(bkJob.name)} → Google Drive backup</span><span class="spd">${fmtB(sp)}/s</span></div>
+      <div class="prog"><i style="width:${pct.toFixed(1)}%"></i></div><div class="meta"><span><b>${pct.toFixed(1)}%</b></span><span><b>${fmtB(done)}</b> of ${fmtB(total)}</span><span>Today's batch: ${fmtB(bwNow().used + (g.bytes || 0))} of ${fmtB(bwBudget())}</span></div>`;
+    return;
+  }
   const lim = currentLimit(st.settings.speed), limTxt = lim === "off" ? "no limit" : "limit " + (LIMIT_LABEL[lim] || lim);
   if (!act.length) {
     const scanned = st.lastScanOk ? new Date(st.lastScanOk).toLocaleTimeString([], {hour: "numeric", minute: "2-digit", second: "2-digit"}) : "—";
@@ -905,6 +1033,7 @@ async function openSettings() {
     s_oLimit: s.speed.off, s_transfers: String(s.transfers), s_parallel: String(s.parallel), s_samples: String(s.samples), s_verify: s.verify,
     s_llPer: s.money.llPerTB, s_llTarget: s.money.llTargetTB, s_dbxPer: s.money.dbxPerTB, s_dbxFree: s.money.dbxFreeTB};
   for (const k in v) $("#" + k).value = v[k];
+  $("#s_bkEnabled").checked = s.backup.enabled; $("#s_bkPath").value = s.backup.path; $("#s_bkDaily").value = String(s.backup.dailyGB);
   $("#s_gdEnabled").checked = s.lanes.gdrive.enabled; $("#s_weekends").checked = s.speed.weekends; $("#s_auto").checked = s.autoStart;
   $("#drawer").classList.add("show"); $("#scrim").classList.add("show");
 }
@@ -917,6 +1046,7 @@ $("#saveSettings").onclick = async () => {
   s.dropPath = {dropbox: g("s_dropDropbox").replace(/\/+$/, ""), gdrive: g("s_dropGdrive").replace(/\/+$/, "")};
   s.lucidRoot = volumeOf(s.dropPath.dropbox || s.dropPath.gdrive);
   s.lanes.dropbox.remote = g("s_dbxRemote"); s.lanes.dropbox.path = g("s_dbxPath");
+  s.backup = {enabled: $("#s_bkEnabled").checked, path: g("s_bkPath"), dailyGB: Number(g("s_bkDaily")) || 700};
   s.lanes.gdrive.remote = g("s_gdRemote"); s.lanes.gdrive.path = g("s_gdPath"); s.lanes.gdrive.enabled = $("#s_gdEnabled").checked;
   s.reportsFolder = g("s_reports") || "_Archive Reports";
   s.speed = {start: g("s_wStart") || "08:00", end: g("s_wEnd") || "19:00", work: g("s_wLimit"), off: g("s_oLimit"), weekends: $("#s_weekends").checked};
@@ -955,21 +1085,22 @@ const permHint = () => `macOS is blocking the transfer engine from reading Lucid
 let pk = null;
 document.addEventListener("click", e => { const b = e.target.closest("[data-pick]"); if (!b) return; const [kind, lane] = b.dataset.pick.split("|"); openPicker(kind, lane); });
 function openPicker(kind, lane) {
-  const inputId = {"drop|dropbox": "s_dropDropbox", "drop|gdrive": "s_dropGdrive", "dest|dropbox": "s_dbxPath", "dest|gdrive": "s_gdPath"}[kind + "|" + lane];
+  const inputId = {"drop|dropbox": "s_dropDropbox", "drop|gdrive": "s_dropGdrive", "dest|dropbox": "s_dbxPath", "dest|gdrive": "s_gdPath", "dest|backup": "s_bkPath"}[kind + "|" + lane];
   const local = kind === "drop", remote = local ? null : $(lane === "dropbox" ? "#s_dbxRemote" : "#s_gdRemote").value;
+  const laneLabel = lane === "backup" ? "Google Drive" : LANES[lane];
   if (!local && !st.remotes.includes(remote)) { toast(`“${remote}” isn't connected in rclone yet`); return; }
   const cur = $("#" + inputId).value.trim();
-  pk = {kind, lane, local, remote, inputId, rel: (cur || (local ? "/Volumes" : "")).replace(/^\/+|\/+$/g, ""), adding: false};
+  pk = {kind, lane, laneLabel, local, remote, inputId, rel: (cur || (local ? "/Volumes" : "")).replace(/^\/+|\/+$/g, ""), adding: false};
   $("#modal").classList.add("wide"); showModal(); pickRender();
 }
 const pickFs = () => pk.local ? "/" : pk.lane === "dropbox" ? pk.remote + ":/" : pk.remote + ":";
 async function pickRender(goParentOnError = true) {
   const segs = pk.rel ? pk.rel.split("/") : [];
-  const rootLabel = pk.local ? "Computer" : LANES[pk.lane];
+  const rootLabel = pk.local ? "Computer" : pk.laneLabel;
   const crumbs = [`<button data-rel="">${esc(rootLabel)}</button>`].concat(segs.map((x, i) => `<span>›</span><button data-rel="${esc(segs.slice(0, i + 1).join("/"))}">${esc(x)}</button>`)).join("");
   const canChoose = pk.local ? segs.length >= 2 || (segs.length === 1 && segs[0] !== "Volumes") : true;
   const here = segs.length ? segs[segs.length - 1] : rootLabel;
-  $("#modal").innerHTML = `<h3>${pk.kind === "drop" ? "Choose the drop folder on LucidLink" : "Choose the archive folder in " + esc(LANES[pk.lane])}</h3>
+  $("#modal").innerHTML = `<h3>${pk.kind === "drop" ? "Choose the drop folder on LucidLink" : "Choose the archive folder in " + esc(pk.laneLabel)}</h3>
     <div class="crumbs" id="pkCrumbs">${crumbs}</div>
     <div class="plist" id="pkList"><div class="msg">Loading…</div></div>
     <div class="newf" id="pkNew" ${pk.adding ? "" : "hidden"}><input id="pkNewName" placeholder="New folder name"><button class="btn" id="pkMk">Create</button></div>
@@ -1018,6 +1149,7 @@ async function tick() {
     if (Date.now() - st.lastAbout > 300000) await refreshAbout();
     if (tickN++ % 20 === 0) { const want = currentLimit(st.settings.speed); await rc("core/bwlimit", {rate: want}).catch(() => {}); }
     await advance();
+    await advanceBackups();
   } catch (e) {
     if (st.online) log("Lost connection to the engine", "e");
     st.online = false; $("#engDot").className = "dot off"; $("#engTxt").textContent = "Engine stopped · reopen the app";
@@ -1026,7 +1158,7 @@ async function tick() {
 }
 (async function boot() {
   try { st.env = await (await afetch("env.json", {cache: "no-store"})).json(); } catch { st.env = {}; }
-  await loadSettings(); updNotifBtn();
+  await loadSettings(); await loadBw(); updNotifBtn();
   if (window.Notification && Notification.permission === "default") $("#notifBtn").textContent = "Turn on notifications";
   render();
   // Only one open dashboard drives the pipeline; any others wait until it's closed.

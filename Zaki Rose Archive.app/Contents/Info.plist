@@ -4,8 +4,8 @@
 <key>CFBundleName</key><string>Zaki Rose Archive</string>
 <key>CFBundleDisplayName</key><string>Zaki Rose Archive</string>
 <key>CFBundleIdentifier</key><string>com.zakirose.archive</string>
-<key>CFBundleVersion</key><string>1.5</string>
-<key>CFBundleShortVersionString</key><string>1.5</string>
+<key>CFBundleVersion</key><string>1.6</string>
+<key>CFBundleShortVersionString</key><string>1.6</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleExecutable</key><string>ZakiRoseArchive</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>

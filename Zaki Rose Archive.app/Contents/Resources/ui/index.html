@@ -257,7 +257,8 @@ td{padding:10px;border-bottom:1px solid var(--line)}
   </div>
   <div class="row">
     <div class="f"><label>Limit outside work hours</label><select id="s_oLimit"></select></div>
-    <div class="f"><label>Files at once</label><select id="s_transfers"><option>4</option><option>8</option><option>12</option><option>16</option></select></div>
+    <div class="f"><label>Files at once</label><select id="s_transfers"><option>8</option><option>16</option><option value="32">32 (recommended)</option><option>48</option><option>64</option></select>
+      <div class="hint">Dropbox takes each file at roughly 5 MB/s, so more files at once means more total speed. Changing this restarts the current transfer; finished files aren't sent again.</div></div>
   </div>
   <div class="chk"><input type="checkbox" id="s_weekends"><label for="s_weekends">Weekends use the “outside work hours” limit all day</label></div>
 
@@ -329,7 +330,7 @@ const DEFAULTS = {
           gdrive: {remote: "GoogleDrive", path: "", enabled: false}},
   reportsFolder: "_Archive Reports",
   backup: {enabled: false, path: "", dailyGB: 700},
-  transfers: 8, parallel: 1, autoStart: true, verify: "full", samples: 6,
+  transfers: 32, parallel: 1, autoStart: true, verify: "full", samples: 6,
   speed: {start: "08:00", end: "19:00", work: "25M", off: "off", weekends: true},
   money: {llPerTB: 600, llTargetTB: 45, dbxPerTB: 120, dbxFreeTB: 10},
   held: [], bwlimit: ""
@@ -628,7 +629,7 @@ async function startBackup(r) {
   const src = join(laneFs("dropbox"), r.project), dst = join(backupFs(), r.project);
   await rc("operations/mkdir", {fs: backupFs(), remote: ""}).catch(() => {});
   await startJob("backup", "dropbox", r.project, "sync/copy", {srcFs: src, dstFs: dst, _filter: FILTER,
-    _config: {MaxTransfer: Math.max(1, Math.floor(bwRemaining())) + "B", CutoffMode: "soft", Transfers: 4, Checkers: 8}});
+    _config: {MaxTransfer: Math.max(1, Math.floor(bwRemaining())) + "B", CutoffMode: "soft", Transfers: Math.min(16, Number(st.settings.transfers)), Checkers: 16}});
   r.backup = {...(r.backup || {}), status: "copying", dest: dst, startedAt: r.backup?.startedAt || new Date().toISOString(), error: null};
   await writeReport("dropbox", r);
   log(`Backing up ${r.project} → Google Drive`, "g");
@@ -755,6 +756,25 @@ function friendlyErr(msg) {
   if (/insufficient.?space|storage.?quota|over.?quota|storageQuotaExceeded|insufficient_space/i.test(msg)) return "The destination is out of space. Free some up or pick another archive folder, then click Try again.";
   if (/not permitted/i.test(msg)) return "macOS blocked access to this folder. " + msg;
   return msg;
+}
+
+/* restart running copies so a new "files at once" value takes effect (done files are skipped) */
+async function restartCopies() {
+  const running = st.jobs.filter(j => (j.kind === "copy" || j.kind === "backup") && !j.status.finished);
+  for (const j of running) {
+    const key = j.kind === "backup" ? "backup|" + j.name : j.lane + "|" + j.name;
+    st.busy.add(key);
+    try {
+      await rc("job/stop", {jobid: j.id}).catch(() => {});
+      for (let i = 0; i < 40; i++) { const s = await rc("job/status", {jobid: j.id}).catch(() => null); if (!s || s.finished) break; await new Promise(r => setTimeout(r, 500)); }
+      if (j.kind === "backup") { const g = await rc("core/stats", {group: j.group, short: true}).catch(() => ({})); const w = bwNow(); if (!w.start) w.start = Date.now(); w.used += g.bytes || 0; await saveBw(); }
+      st.jobs = st.jobs.filter(x => x.id !== j.id || x.exec !== j.exec); saveJobs();
+      if (j.kind === "copy") await startCopy(j.lane, j.name);
+      else { const r = st.reports.dropbox.get(j.name); if (r) await startBackup(r); }
+      log(`${j.name}: restarted with ${st.settings.transfers} files at once`, "g");
+    } catch (e) { log(`${j.name}: couldn't restart: ${e.message}`, "e"); }
+    finally { st.busy.delete(key); }
+  }
 }
 
 /* ---------- actions ---------- */
@@ -1042,6 +1062,7 @@ function closeSettings() { $("#drawer").classList.remove("show"); $("#scrim").cl
 $("#openSettings").onclick = openSettings; $("#closeSettings").onclick = closeSettings;
 $("#scrim").onclick = () => { if ($("#modal").classList.contains("show")) { $("#modal").classList.remove("wide"); closeModal(); } else closeSettings(); };
 $("#saveSettings").onclick = async () => {
+  const oldTransfers = Number(st.settings.transfers);
   const s = st.settings, g = id => $("#" + id).value.trim();
   s.dropPath = {dropbox: g("s_dropDropbox").replace(/\/+$/, ""), gdrive: g("s_dropGdrive").replace(/\/+$/, "")};
   s.lucidRoot = volumeOf(s.dropPath.dropbox || s.dropPath.gdrive);
@@ -1053,7 +1074,8 @@ $("#saveSettings").onclick = async () => {
   s.transfers = Number(g("s_transfers")); s.parallel = Number(g("s_parallel")); s.samples = Number(g("s_samples")); s.verify = g("s_verify");
   s.autoStart = $("#s_auto").checked;
   s.money = {llPerTB: +g("s_llPer") || 600, llTargetTB: +g("s_llTarget") || 45, dbxPerTB: +g("s_dbxPer") || 120, dbxFreeTB: +g("s_dbxFree") || 0};
-  try { await saveSettings(); toast("Settings saved"); log("Settings saved"); closeSettings(); st.reports = {dropbox: new Map(), gdrive: new Map()}; st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
+  try { await saveSettings(); toast("Settings saved"); log("Settings saved");
+    if (Number(s.transfers) !== oldTransfers) restartCopies(); closeSettings(); st.reports = {dropbox: new Map(), gdrive: new Map()}; st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
   catch (e) { toast("Couldn't save: " + e.message); }
 };
 $("#quitEngine").onclick = async () => {

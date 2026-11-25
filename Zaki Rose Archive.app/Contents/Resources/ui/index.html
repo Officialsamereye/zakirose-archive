@@ -153,6 +153,11 @@ td{padding:10px;border-bottom:1px solid var(--line)}
 .nowbar .prog{height:12px}
 .diag{margin-top:10px;font:12px/1.55 var(--mono);color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;max-height:220px;overflow:auto;white-space:pre-wrap}
 .hintbox{margin:10px 0 0;font-size:13px;color:var(--warn);background:var(--warnbg);border-radius:10px;padding:10px 12px;line-height:1.5}
+.second{position:fixed;inset:0;z-index:90;background:rgba(19,25,44,.96);display:flex;align-items:center;justify-content:center}
+.second[hidden]{display:none}
+.second .box{max-width:460px;text-align:center;padding:30px}
+.second .zr{font-size:24px;font-weight:800;letter-spacing:-.045em;margin-bottom:22px}.second .zr span{font-weight:400;font-size:15px;color:var(--muted);letter-spacing:0;margin-left:8px}
+.second h3{font-size:22px;margin:0 0 10px}.second p{color:var(--muted)}.second .sub{font-size:13px;color:var(--faint)}
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line2);border-radius:12px;padding:12px 18px;z-index:70;display:none;font-size:13.5px}
 .toast.show{display:block}
 .setup{border:1px solid rgba(190,80,47,.55);background:linear-gradient(180deg,rgba(190,80,47,.12),transparent);border-radius:16px;padding:20px 22px;margin-top:24px}
@@ -270,6 +275,10 @@ td{padding:10px;border-bottom:1px solid var(--line)}
   </div>
 </aside>
 
+<div class="second" id="second" hidden><div class="box"><div class="zr">zakirose <span>Archive</span></div>
+  <h3>Already open in another window</h3>
+  <p>Zaki Rose Archive is running in another window or tab. Close this one and use the other, so transfers aren't started twice.</p>
+  <p class="sub">If you close the other window, this one takes over automatically.</p></div></div>
 <div class="modal" id="modal"></div>
 <div class="toast" id="toast"></div>
 
@@ -1010,7 +1019,16 @@ async function tick() {
   try { st.env = await (await afetch("env.json", {cache: "no-store"})).json(); } catch { st.env = {}; }
   await loadSettings(); updNotifBtn();
   if (window.Notification && Notification.permission === "default") $("#notifBtn").textContent = "Turn on notifications";
-  render(); await tick(); setInterval(tick, 3000);
+  render();
+  // Only one open dashboard drives the pipeline; any others wait until it's closed.
+  const lead = async () => { st.jobs = loadJobs(); $("#second").hidden = true; await tick(); setInterval(tick, 3000); return new Promise(() => {}); };
+  if (navigator.locks) {
+    navigator.locks.request("zra-leader", {ifAvailable: true}, lock => {
+      if (lock) return lead();
+      $("#second").hidden = false;
+      navigator.locks.request("zra-leader", lead);
+    });
+  } else { await tick(); setInterval(tick, 3000); }
   if (!dropFs("dropbox")) openSettings();
 })();
 </script>

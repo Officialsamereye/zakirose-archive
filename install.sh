@@ -26,6 +26,7 @@ if [ -s "$SUP/.engine" ]; then
   curl -s -m 3 -u "zr:$(cat "$SUP/.engine")" -X POST http://127.0.0.1:5572/core/quit >/dev/null 2>&1 && say "Stopped the running engine" || true
   sleep 1
 fi
+launchctl bootout "gui/$(id -u)/com.zakirose.archive.engine" >/dev/null 2>&1 || true
 
 # 3. download and install the app
 DEST="/Applications"; [ -w "$DEST" ] || { DEST="$HOME/Applications"; mkdir -p "$DEST"; }
@@ -44,3 +45,10 @@ say "Installed version $VER to $DEST"
 # 4. open it
 open "$DEST/$APP"
 say "Done. Zaki Rose Archive is opening."
+echo
+echo "  One-time step: give the transfer engine access to LucidLink."
+echo "  System Settings → Privacy & Security → Full Disk Access → +"
+echo "  press ⌘⇧G, paste the path below, click Open, switch it on:"
+echo
+echo "      $(command -v rclone || echo /usr/local/bin/rclone)"
+echo

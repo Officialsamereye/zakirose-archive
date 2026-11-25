@@ -428,12 +428,23 @@ async function listDirs(fs) {
   const r = await rc("operations/list", {fs, remote: "", opt: {dirsOnly: true}});
   return (r.list || []).map(x => x.Name).filter(n => !n.startsWith(".") && n !== st.settings.reportsFolder);
 }
+async function blockedByMac(path) {
+  try {
+    const url = serveUrl(st.env.supportDir + "/logs", "engine.log");
+    const head = await afetch(url, {method: "HEAD"}); const size = Number(head.headers.get("Content-Length")) || 0;
+    const r = await afetch(url, {headers: {Range: `bytes=${Math.max(0, size - 6000)}-`}, cache: "no-store"});
+    return (await r.text()).includes(`open ${path}: operation not permitted`);
+  } catch { return false; }
+}
 async function scan() {
   st.lastScan = Date.now();
   try { st.remotes = (await rc("config/listremotes")).remotes || []; } catch {}
   for (const lane of Object.keys(LANES)) {
     if (!laneReady(lane)) { st.drops[lane] = []; continue; }
-    try { st.drops[lane] = await listDirs(dropFs(lane)); st.errors.delete("drop|" + lane); st.lastScanOk = Date.now(); }
+    try {
+      st.drops[lane] = await listDirs(dropFs(lane)); st.errors.delete("drop|" + lane); st.lastScanOk = Date.now();
+      if (!st.drops[lane].length && await blockedByMac(dropFs(lane))) st.errors.set("drop|" + lane, "operation not permitted");
+    }
     catch (e) { st.drops[lane] = []; st.errors.set("drop|" + lane, e.message); }
     try {
       const r = await rc("operations/list", {fs: reportsFs(lane), remote: "", opt: {filesOnly: true}});
@@ -728,7 +739,7 @@ function render() {
   $("#pipeSub").textContent = items.length ? `${items.length} project${items.length > 1 ? "s" : ""}` : "";
   $("#pipeline").innerHTML = items.length ? items.map(cardHtml).join("") : (dropFs("dropbox") ? `<div class="empty"><div class="big">Nothing waiting</div>
     Move a project folder into <span class="path">${esc(baseName(dropFs("dropbox")))}</span>${s.lanes.onedrive.enabled && dropFs("onedrive") ? ` or <span class="path">${esc(baseName(dropFs("onedrive")))}</span>` : ""} on LucidLink and it'll show up here.
-    <div class="hintbox" style="text-align:left;max-width:720px;margin:14px auto 0">Already have folders in there and still see nothing? ${PERM_HINT}</div></div>` : "");
+</div>` : "");
   // KPIs
   let queued = 0, qn = 0;
   for (const it of items) { const z = st.sizes.get(it.lane + "|" + it.name); if (z) { queued += z.bytes; qn++; } }
@@ -838,7 +849,9 @@ function renderSetup() {
   const s = st.settings, need = [];
   if (!dropFs("dropbox")) need.push("Choose your drop folder on LucidLink");
   if (!st.remotes.includes(s.lanes.dropbox.remote)) need.push(`Connect Dropbox in rclone (named “${esc(s.lanes.dropbox.remote)}”)`);
-  const missing = Object.keys(LANES).filter(l => s.lanes[l].enabled && dropFs(l) && st.errors.has("drop|" + l));
+  const blocked = Object.keys(LANES).some(l => /permit/i.test(st.errors.get("drop|" + l) || ""));
+  if (blocked) need.push(`<span class="warn">Allow access to LucidLink:</span> ${permHint()}`);
+  const missing = Object.keys(LANES).filter(l => s.lanes[l].enabled && dropFs(l) && st.errors.has("drop|" + l) && !/permit/i.test(st.errors.get("drop|" + l)));
   $("#setup").innerHTML = need.length || missing.length ? `<div class="setup"><h2>Finish setup</h2>
     ${need.map(n => `<div>• ${n}</div>`).join("")}
     ${missing.length ? `<div style="margin-top:6px">• Drop folder${missing.length > 1 ? "s" : ""} not found on LucidLink: ${missing.map(l => `<span class="path">${esc(dropFs(l))}</span>`).join(" ")}
@@ -918,9 +931,9 @@ $("#notifBtn").onclick = async () => { try { const p = await Notification.reques
 function updNotifBtn() { const on = window.Notification && Notification.permission === "granted"; $("#notifBtn").style.display = on ? "none" : ""; }
 
 /* ---------- folder picker ---------- */
-const PERM_HINT = `If Finder shows folders here but this list is empty, macOS is blocking the app from reading LucidLink.
-  Open <b>System Settings → Privacy &amp; Security → Full Disk Access</b>, turn on <b>Zaki Rose Archive</b> (use + to add it from Applications if it isn't listed),
-  then open Settings here, click <b>Stop engine</b>, and reopen the app.`;
+const permHint = () => `macOS is blocking the transfer engine from reading LucidLink. Open <b>System Settings → Privacy &amp; Security → Full Disk Access</b>,
+  click <b>+</b>, press <b>⌘⇧G</b>, paste <b>${esc(st.env.rclone || "/usr/local/bin/rclone")}</b>, click <b>Open</b>, and make sure <b>rclone</b> is switched on.
+  Then click <b>Stop engine</b> in Settings and reopen Zaki Rose Archive.`;
 let pk = null;
 document.addEventListener("click", e => { const b = e.target.closest("[data-pick]"); if (!b) return; const [kind, lane] = b.dataset.pick.split("|"); openPicker(kind, lane); });
 function openPicker(kind, lane) {
@@ -962,11 +975,11 @@ async function pickRender(goParentOnError = true) {
     const r = await rc("operations/list", {fs: pickFs(), remote: pk.rel, opt: {dirsOnly: true}});
     const names = (r.list || []).map(x => x.Name).filter(n => !n.startsWith(".")).sort((a, b) => a.localeCompare(b, undefined, {numeric: true, sensitivity: "base"}));
     $("#pkList").innerHTML = names.length ? names.map(n => `<button data-n="${esc(n)}"><span class="fi"></span>${esc(n)}</button>`).join("")
-      : `<div class="msg">No folders in here.</div>${pk.local && /^Volumes\/[^/]+/.test(pk.rel) ? `<div class="hintbox" style="margin:0 14px">${PERM_HINT}</div>` : ""}`;
+      : `<div class="msg">No folders in here.</div>${pk.local && /^Volumes\/[^/]+/.test(pk.rel) ? `<div class="hintbox" style="margin:0 14px">${permHint()}</div>` : ""}`;
     $("#pkList").onclick = e => { const b = e.target.closest("button"); if (b) { pk.rel = pk.rel ? pk.rel + "/" + b.dataset.n : b.dataset.n; pk.adding = false; pickRender(); } };
   } catch (e) {
     if (goParentOnError && pk.rel && /not found|no such file/i.test(e.message)) { pk.rel = pk.rel.split("/").slice(0, -1).join("/"); return pickRender(true); }
-    $("#pkList").innerHTML = `<div class="msg bad">Couldn't open this folder: ${esc(e.message)}</div>${/permit|denied/i.test(e.message) ? `<div class="hintbox" style="margin:0 14px">${PERM_HINT}</div>` : ""}`;
+    $("#pkList").innerHTML = `<div class="msg bad">Couldn't open this folder: ${esc(e.message)}</div>${/permit|denied/i.test(e.message) ? `<div class="hintbox" style="margin:0 14px">${permHint()}</div>` : ""}`;
   }
 }
 

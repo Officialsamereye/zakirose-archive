@@ -553,6 +553,12 @@ async function advance() {
     if (!st.reportsOk[p.lane]) continue; // never start work without knowing the report history
     if (rep && rep.confirmedAt) { cleanLeftover(p.lane, p.name); continue; }
     if (rep && rep.status === "passed" && !isFull(rep)) {
+      const good = st.jobs.filter(j => j.kind === "verify" && j.lane === p.lane && j.name === p.name && j.status.finished && j.status.output && j.status.output.success === true
+        && new Date(j.status.startTime || 0) > new Date(rep.verifiedAt || 0)).sort((a, b) => jt(b) - jt(a))[0];
+      if (good) {
+        for (const j of st.jobs) if (j.kind === "verify" && j.name === p.name && !j.status.finished) rc("job/stop", {jobid: j.id}).catch(() => {});
+        run(key, () => finishVerify(p.lane, p.name, good, true)); continue;
+      }
       if (ver && !ver.status.finished) continue;
       const fresh = ver && ver.status.finished && ver.status.output && typeof ver.status.output.success === "boolean" && new Date(ver.status.startTime || 0) > new Date(rep.verifiedAt || 0);
       if (fresh) { run(key, () => finishVerify(p.lane, p.name, ver, true)); continue; }
@@ -1375,8 +1381,12 @@ async function tick() {
   }
   ticking = false; render();
 }
+const PAGE_VERSION = "1.17";
 (async function boot() {
   try { st.env = await (await afetch("env.json", {cache: "no-store"})).json(); } catch { st.env = {}; }
+  if (st.env.appVersion && PAGE_VERSION.indexOf("__") !== 0 && st.env.appVersion !== PAGE_VERSION && new URLSearchParams(location.search).get("v") !== st.env.appVersion) {
+    location.replace("/?v=" + encodeURIComponent(st.env.appVersion) + "&t=" + Date.now()); return; // never run an outdated copy
+  }
   await loadSettings(); await loadBw(); updNotifBtn();
   if (window.Notification && Notification.permission === "default") $("#notifBtn").textContent = "Turn on notifications";
   render();

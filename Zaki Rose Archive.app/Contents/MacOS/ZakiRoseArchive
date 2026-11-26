@@ -63,7 +63,7 @@ fi
 EPID="$(pgrep -f "rclone rcd --rc-addr 127.0.0.1:$PORT" | head -n 1)"
 if [ -n "$EPID" ] && ! pgrep -f "caffeinate -i -w $EPID" >/dev/null; then nohup caffeinate -i -w "$EPID" >/dev/null 2>&1 & fi
 
-URL="http://zr:$PASS@127.0.0.1:$PORT/#k=$KEY"
+URL="http://zr:$PASS@127.0.0.1:$PORT/?v=$VERSION&t=$(date +%s)#k=$KEY"
 if [ -d "/Applications/Google Chrome.app" ]; then
   open -na "Google Chrome" --args --app="$URL" --window-size=1360,960
 else

@@ -34,8 +34,9 @@ if ! running; then
     --rc-addr "127.0.0.1:$PORT" --rc-user zr --rc-pass "$PASS"
     --rc-files "$UI" --rc-serve --rc-job-expire-duration 2h
     --bwlimit "$BW" --transfers 8 --checkers 16
-    --dropbox-batch-mode sync --dropbox-chunk-size 64Mi
-    --drive-chunk-size 64Mi --drive-stop-on-upload-limit
+    --dropbox-batch-mode sync --dropbox-chunk-size 32Mi
+    --drive-chunk-size 32Mi --drive-stop-on-upload-limit
+    --buffer-size 8Mi --use-mmap --max-buffer-memory 1536Mi
     --retries 5 --low-level-retries 20
     --log-file "$SUP/logs/engine.log" --log-level INFO)
   {

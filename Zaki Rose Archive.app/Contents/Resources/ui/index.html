@@ -815,7 +815,10 @@ function friendlyErr(msg) {
 /* restart running copies so a new "files at once" value takes effect (done files are skipped) */
 async function restartCopies() {
   const running = st.jobs.filter(j => (j.kind === "copy" || j.kind === "backup") && !j.status.finished);
+  let copies = 0;
   for (const j of running) {
+    // If "projects at once" was lowered, extra projects go back to the queue instead of restarting.
+    const extra = j.kind === "copy" && ++copies > Number(st.settings.parallel);
     const key = j.kind === "backup" ? "backup|" + j.name : j.lane + "|" + j.name;
     st.busy.add(key);
     try {
@@ -823,6 +826,7 @@ async function restartCopies() {
       for (let i = 0; i < 40; i++) { const s = await rc("job/status", {jobid: j.id}).catch(() => null); if (!s || s.finished) break; await new Promise(r => setTimeout(r, 500)); }
       if (j.kind === "backup") { const g = await rc("core/stats", {group: j.group, short: true}).catch(() => ({})); const w = bwNow(); if (!w.start) w.start = Date.now(); w.used += g.bytes || 0; await saveBw(); }
       st.jobs = st.jobs.filter(x => x.id !== j.id || x.exec !== j.exec); saveJobs();
+      if (extra) { log(`${j.name}: back in the queue (projects at once is ${st.settings.parallel})`); continue; }
       if (j.kind === "copy") await startCopy(j.lane, j.name);
       else { const r = st.reports.dropbox.get(j.name); if (r) await startBackup(r); }
       log(`${j.name}: restarted with ${st.settings.transfers} files at once`, "g");
@@ -1129,7 +1133,7 @@ function closeSettings() { $("#drawer").classList.remove("show"); $("#scrim").cl
 $("#openSettings").onclick = openSettings; $("#closeSettings").onclick = closeSettings;
 $("#scrim").onclick = () => { if ($("#modal").classList.contains("show")) { $("#modal").classList.remove("wide"); closeModal(); } else closeSettings(); };
 $("#saveSettings").onclick = async () => {
-  const oldTransfers = Number(st.settings.transfers);
+  const oldTransfers = Number(st.settings.transfers), oldParallel = Number(st.settings.parallel);
   const s = st.settings, g = id => $("#" + id).value.trim();
   s.dropPath = {dropbox: g("s_dropDropbox").replace(/\/+$/, ""), gdrive: g("s_dropGdrive").replace(/\/+$/, "")};
   s.lucidRoot = volumeOf(s.dropPath.dropbox || s.dropPath.gdrive);
@@ -1142,7 +1146,7 @@ $("#saveSettings").onclick = async () => {
   s.autoStart = $("#s_auto").checked;
   s.money = {llPerTB: +g("s_llPer") || 600, llTargetTB: +g("s_llTarget") || 45, dbxPerTB: +g("s_dbxPer") || 120, dbxFreeTB: +g("s_dbxFree") || 0};
   try { await saveSettings(); toast("Settings saved"); log("Settings saved");
-    if (Number(s.transfers) !== oldTransfers) restartCopies(); closeSettings(); st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
+    if (Number(s.transfers) !== oldTransfers || Number(s.parallel) < oldParallel) restartCopies(); closeSettings(); st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
   catch (e) { toast("Couldn't save: " + e.message); }
 };
 $("#quitEngine").onclick = async () => {

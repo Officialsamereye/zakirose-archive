@@ -413,7 +413,10 @@ async function refreshJobs() {
   }
   st.jobs = st.jobs.filter(j => !j.lost); saveJobs();
 }
-const latestJob = (kind, lane, name) => st.jobs.filter(j => j.kind === kind && j.lane === lane && j.name === name).sort((a, b) => b.id - a.id)[0];
+// Job numbers restart whenever the engine restarts, so order jobs by when they started, never by number.
+const jt = j => Date.parse((j && j.status && j.status.startTime) || "") || 0;
+const newer = (a, b) => jt(a) > jt(b) || (jt(a) === jt(b) && a.exec === b.exec && a.id > b.id);
+const latestJob = (kind, lane, name) => st.jobs.filter(j => j.kind === kind && j.lane === lane && j.name === name).sort((a, b) => newer(a, b) ? -1 : newer(b, a) ? 1 : 0)[0];
 
 /* ---------- settings ---------- */
 function laneFs(lane) { const l = st.settings.lanes[lane]; return `${l.remote}:${l.path || ""}`; }
@@ -558,9 +561,9 @@ async function advance() {
     }
     if (rep) continue;
     // copy finished OK and no verification yet -> verify
-    if (copy && copy.status.finished && copy.status.success && (!ver || ver.id < copy.id)) { if (!verifyBusy()) { st.verifyStarting = Date.now(); run(key, () => beginVerify(p.lane, p.name)); } continue; }
+    if (copy && copy.status.finished && copy.status.success && (!ver || newer(copy, ver))) { if (!verifyBusy()) { st.verifyStarting = Date.now(); run(key, () => beginVerify(p.lane, p.name)); } continue; }
     // verification finished -> write the report
-    if (ver && ver.status.finished && copy && ver.id > copy.id) { run(key, () => finishVerify(p.lane, p.name, ver)); continue; }
+    if (ver && ver.status.finished && copy && newer(ver, copy)) { run(key, () => finishVerify(p.lane, p.name, ver)); continue; }
     if (p.state === "queued" && s.autoStart && active < s.parallel) { active++; run(key, () => startCopy(p.lane, p.name)); }
   }
 }
@@ -647,7 +650,7 @@ async function watchVerified() {
     if (["icopy", "icheck"].some(k => { const j = latestJob(k, lane, name); return j && !j.status.finished; })) continue;
     const ic = latestJob("icheck", lane, name), icp = latestJob("icopy", lane, name);
     const done = j => j && j.status.finished && !st.incDone.has(j.id + "@" + j.exec);
-    if (done(icp) && (!ic || ic.id < icp.id)) { st.incDone.add(icp.id + "@" + icp.exec); run(key, () => finishIncremental(lane, name, "icopy", icp)); continue; }
+    if (done(icp) && (!ic || newer(icp, ic))) { st.incDone.add(icp.id + "@" + icp.exec); run(key, () => finishIncremental(lane, name, "icopy", icp)); continue; }
     if (done(ic)) { st.incDone.add(ic.id + "@" + ic.exec); run(key, () => finishIncremental(lane, name, "icheck", ic)); continue; }
     if (!rep.files) { run(key, () => baselineLedger(lane, name, rep)); continue; }
     if (Date.now() - (st.lastWatch.get(key) || 0) < 10 * 60e3) continue;

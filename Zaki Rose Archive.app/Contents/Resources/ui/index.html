@@ -343,7 +343,7 @@ const st = {
   reportMods: new Map(), sizes: new Map(),      // key -> {count,bytes}
   busy: new Set(), phase: new Map(), errors: new Map(),
   jobs: loadJobs(), stats: new Map(), totalSpeed: 0, limit: null,
-  bw: {start: null, used: 0},
+  bw: {start: null, used: 0}, reportsOk: {},
   prevState: new Map(), log: [], llDu: null, dbxAbout: null, lastScan: 0, lastAbout: 0
 };
 
@@ -475,15 +475,21 @@ async function scan() {
     }
     catch (e) { st.drops[lane] = []; st.errors.set("drop|" + lane, e.message); }
     try {
+      st.reportsOk[lane] = false;
       const r = await rc("operations/list", {fs: reportsFs(lane), remote: "", opt: {filesOnly: true}});
       for (const f of r.list || []) {
         if (!f.Name.endsWith(".json")) continue;
         const name = f.Name.slice(0, -5), key = lane + "|" + name;
         if (st.reportMods.get(key) === f.ModTime && st.reports[lane].has(name)) continue;
         const res = await afetch(serveUrl(reportsFs(lane), f.Name), {cache: "no-store"});
-        if (res.ok) { st.reports[lane].set(name, await res.json()); st.reportMods.set(key, f.ModTime); }
+        if (!res.ok) throw new Error("couldn't read report " + f.Name);
+        st.reports[lane].set(name, await res.json()); st.reportMods.set(key, f.ModTime);
       }
-    } catch { /* reports folder not created yet */ }
+      st.reportsOk[lane] = true;
+    } catch (e) {
+      // Only "folder doesn't exist yet" counts as safe; any other failure blocks new work this round.
+      if (/not found/i.test(e.message || "")) st.reportsOk[lane] = true;
+    }
     for (const name of st.drops[lane]) {
       const key = lane + "|" + name;
       if (!st.sizes.has(key) && !st.busy.has("size|" + key)) {
@@ -508,6 +514,7 @@ function projectState(lane, name) {
   if (copy && !copy.status.finished) return "transferring";
   if (ver && !ver.status.finished) return "verifying";
   if (st.phase.get(key)) return st.phase.get(key);
+  if (rep && rep.confirmedAt) return "archived";
   if (rep && rep.status === "passed" && !rep.confirmedAt) return "ready";
   if (rep && rep.status === "failed") return "attention";
   if (st.settings.held.includes(key)) return "paused";
@@ -527,6 +534,8 @@ async function advance() {
     if (st.busy.has(key)) continue;
     const copy = latestJob("copy", p.lane, p.name), ver = latestJob("verify", p.lane, p.name);
     const rep = st.reports[p.lane].get(p.name);
+    if (!st.reportsOk[p.lane]) continue; // never start work without knowing the report history
+    if (rep && rep.confirmedAt) { cleanLeftover(p.lane, p.name); continue; }
     if (rep) continue;
     // copy finished OK and no verification yet -> verify
     if (copy && copy.status.finished && copy.status.success && (!ver || ver.id < copy.id)) { run(key, () => beginVerify(p.lane, p.name)); continue; }
@@ -539,6 +548,17 @@ function run(key, fn) {
   st.busy.add(key);
   fn().catch(e => { st.errors.set(key, e.message); log(`${key.replace("|", " → ")}: ${e.message}`, "e"); })
       .finally(() => { st.busy.delete(key); st.phase.delete(key); render(); });
+}
+/* A confirmed project's folder can reappear when Finder writes .DS_Store into it. If it holds
+   nothing but system files, remove it quietly; if it holds anything real, leave it and flag it. */
+async function cleanLeftover(lane, name) {
+  const key = lane + "|" + name; if (st.busy.has("left|" + key)) return;
+  st.busy.add("left|" + key);
+  try {
+    const z = await rc("operations/size", {fs: join(dropFs(lane), name), _filter: FILTER});
+    if (z.count === 0) { await rc("operations/purge", {fs: dropFs(lane), remote: name}); st.drops[lane] = st.drops[lane].filter(n => n !== name); log(`${name}: cleared leftover system files`); }
+    else st.errors.set(key, `This project was already archived and removed, but ${z.count} new file(s) appeared in its LucidLink folder. They have not been copied. Move them into a new project folder.`);
+  } catch {} finally { st.busy.delete("left|" + key); render(); }
 }
 async function startCopy(lane, name) {
   const key = lane + "|" + name; st.errors.delete(key);
@@ -567,6 +587,10 @@ async function finishVerify(lane, name, verJob) {
   const src = join(dropFs(lane), name), dst = join(laneFs(lane), name);
   const copy = latestJob("copy", lane, name);
   st.phase.set(key, "media"); render();
+  try {
+    const cur = await afetch(serveUrl(reportsFs(lane), name + ".json"), {cache: "no-store"});
+    if (cur.ok) { const old = await cur.json(); if (old.confirmedAt) { st.reports[lane].set(name, old); log(`${name}: already archived; kept its original report`); return; } }
+  } catch {}
   const [srcSize, dstSize] = await Promise.all([
     rc("operations/size", {fs: src, _filter: FILTER}), rc("operations/size", {fs: dst, _filter: FILTER})]);
   const out = verJob.status.output || {};
@@ -821,6 +845,9 @@ async function confirmRemove(lane, name) {
   }
   st.phase.set(key, "removing"); render();
   await rc("operations/purge", {fs: dropFs(lane), remote: name});
+  await new Promise(r => setTimeout(r, 1500));
+  const left = await rc("operations/size", {fs: src, _filter: FILTER}).catch(() => null);
+  if (left && left.count === 0) await rc("operations/purge", {fs: dropFs(lane), remote: name}).catch(() => {});
   r.confirmedAt = new Date().toISOString(); r.removedBytes = now.bytes;
   await writeReport(lane, r);
   st.phase.delete(key); st.drops[lane] = st.drops[lane].filter(n => n !== name); st.sizes.delete(key);
@@ -850,7 +877,11 @@ function render() {
   }).join("");
   // pipeline
   const items = [];
-  for (const lane of Object.keys(LANES)) for (const name of st.drops[lane]) items.push({lane, name, state: projectState(lane, name)});
+  for (const lane of Object.keys(LANES)) for (const name of st.drops[lane]) {
+    const state = projectState(lane, name);
+    if (state === "archived" && !st.errors.get(lane + "|" + name)) continue;
+    items.push({lane, name, state: state === "archived" ? "attention" : state});
+  }
   const order = {attention: 0, ready: 1, transferring: 2, verifying: 2, media: 2, removing: 2, paused: 3, queued: 4};
   items.sort((a, b) => order[a.state] - order[b.state] || a.name.localeCompare(b.name));
   for (const it of items) {
@@ -999,7 +1030,7 @@ function cardHtml(it) {
   const btns = [];
   if (state === "ready") btns.push(`<a class="btn" href="#" data-report='${esc(JSON.stringify([lane, name]))}' style="text-decoration:none">View report</a>`,
     `<button class="btn primary" data-a="confirm">Confirm &amp; remove from LucidLink</button>`);
-  if (state === "attention") { if (rep) btns.push(`<a class="btn" href="#" data-report='${esc(JSON.stringify([lane, name]))}' style="text-decoration:none">View report</a>`); btns.push(`<button class="btn" data-a="retry">Try again</button>`); }
+  if (state === "attention" && !rep?.confirmedAt) { if (rep) btns.push(`<a class="btn" href="#" data-report='${esc(JSON.stringify([lane, name]))}' style="text-decoration:none">View report</a>`); btns.push(`<button class="btn" data-a="retry">Try again</button>`); }
   if (state === "transferring" || state === "verifying") btns.push(`<button class="btn" data-a="pause">Pause</button>`);
   if (state === "paused") btns.push(`<button class="btn" data-a="resume">Resume</button>`);
   if (state === "queued" && !st.settings.autoStart) btns.push(`<button class="btn primary" data-a="start">Start</button>`);
@@ -1075,7 +1106,7 @@ $("#saveSettings").onclick = async () => {
   s.autoStart = $("#s_auto").checked;
   s.money = {llPerTB: +g("s_llPer") || 600, llTargetTB: +g("s_llTarget") || 45, dbxPerTB: +g("s_dbxPer") || 120, dbxFreeTB: +g("s_dbxFree") || 0};
   try { await saveSettings(); toast("Settings saved"); log("Settings saved");
-    if (Number(s.transfers) !== oldTransfers) restartCopies(); closeSettings(); st.reports = {dropbox: new Map(), gdrive: new Map()}; st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
+    if (Number(s.transfers) !== oldTransfers) restartCopies(); closeSettings(); st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
   catch (e) { toast("Couldn't save: " + e.message); }
 };
 $("#quitEngine").onclick = async () => {

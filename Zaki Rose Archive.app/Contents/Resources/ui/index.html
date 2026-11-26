@@ -319,7 +319,7 @@ document.addEventListener("click", e => { const a = e.target.closest("[data-repo
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const LANES = {dropbox: "Dropbox", gdrive: "Google Drive"};
-const FILTER = {ExcludeRule: [".DS_Store", "._*", "Thumbs.db", "desktop.ini", "Icon\r", ".lucid*"]};
+const FILTER = {ExcludeRule: [".DS_Store", "._*", "Thumbs.db", "desktop.ini", "Icon\r", ".lucid*", "*.partial"]};
 const MEDIA_EXT = /\.(mov|mp4|m4v|mxf|mkv|avi|mts|m2ts|r3d|braw|ari|crm|wav|aif|aiff|mp3|m4a|dng|exr|dpx)$/i;
 const LIMITS = ["off","200M","100M","50M","25M","10M","5M"];
 const LIMIT_LABEL = {off:"No limit","200M":"200 MB/s","100M":"100 MB/s","50M":"50 MB/s","25M":"25 MB/s","10M":"10 MB/s","5M":"5 MB/s"};
@@ -343,7 +343,7 @@ const st = {
   reportMods: new Map(), sizes: new Map(),      // key -> {count,bytes}
   busy: new Set(), phase: new Map(), errors: new Map(),
   jobs: loadJobs(), stats: new Map(), totalSpeed: 0, limit: null,
-  bw: {start: null, used: 0}, reportsOk: {},
+  bw: {start: null, used: 0}, reportsOk: {}, bkEarly: loadEarly(),
   prevState: new Map(), log: [], llDu: null, dbxAbout: null, lastScan: 0, lastAbout: 0
 };
 
@@ -630,13 +630,18 @@ const bwSpent = () => bwRemaining() < Math.min(5e9, bwBudget() * 0.01);
 const bwResetAt = () => st.bw.start ? st.bw.start + DAY : null;
 async function saveBw() { await uploadText(st.env.supportDir, "backup-window.json", JSON.stringify(st.bw)); }
 async function loadBw() { try { const r = await afetch(serveUrl(st.env.supportDir, "backup-window.json"), {cache: "no-store"}); if (r.ok) st.bw = await r.json(); } catch {} }
+const isBk = j => j.kind === "backup" || j.kind === "bkearly";
+function loadEarly() { try { return JSON.parse(localStorage.getItem("zra.bkEarly") || "{}"); } catch { return {}; } }
+function saveEarly() { try { localStorage.setItem("zra.bkEarly", JSON.stringify(st.bkEarly)); } catch {} }
 function bkLiveBytes() {
-  let n = 0; for (const j of st.jobs) if (j.kind === "backup" && !j.status.finished) n += (st.stats.get(j.group) || {}).bytes || 0; return n;
+  let n = 0; for (const j of st.jobs) if (isBk(j) && !j.status.finished) n += (st.stats.get(j.group) || {}).bytes || 0; return n;
 }
 async function advanceBackups() {
   if (!bkReady()) return;
   const reps = [...st.reports.dropbox.values()].filter(r => r.status === "passed");
-  let running = reps.some(r => { const j = latestJob("backup", "dropbox", r.project); return j && !j.status.finished; });
+  let running = st.jobs.some(j => isBk(j) && !j.status.finished);
+  // record finished early batches
+  for (const j of st.jobs.filter(j => j.kind === "bkearly" && j.status.finished && !j.done)) { j.done = true; saveJobs(); run("bkearly|" + j.name, () => finishEarly(j)); }
   for (const r of reps) {
     const key = "backup|" + r.project; if (st.busy.has(key)) continue;
     const j = latestJob("backup", "dropbox", r.project), b = r.backup || {};
@@ -647,6 +652,31 @@ async function advanceBackups() {
     if (bwSpent()) continue; // wait for the next 24-hour window
     running = true; run(key, () => startBackup(r));
   }
+  // Use the rest of today's allowance on files that have already landed in Dropbox
+  // for projects that are still arriving, so no Google Drive day is wasted.
+  if (running || bwSpent()) return;
+  const early = st.drops.dropbox.filter(n => !st.reports.dropbox.has(n) && ["transferring", "verifying", "media"].includes(projectState("dropbox", n)))
+    .filter(n => !st.busy.has("bkearly|" + n) && Date.now() - ((st.bkEarly[n] || {}).last || 0) > 15 * 60e3)
+    .sort((a, b) => ((st.bkEarly[a] || {}).last || 0) - ((st.bkEarly[b] || {}).last || 0));
+  if (early.length) run("bkearly|" + early[0], () => startEarly(early[0]));
+}
+async function startEarly(name) {
+  const w = bwNow(); if (!w.start) { w.start = Date.now(); await saveBw(); }
+  await rc("operations/mkdir", {fs: backupFs(), remote: ""}).catch(() => {});
+  st.bkEarly[name] = {...(st.bkEarly[name] || {}), last: Date.now()}; saveEarly();
+  await startJob("bkearly", "dropbox", name, "sync/copy", {srcFs: join(laneFs("dropbox"), name), dstFs: join(backupFs(), name), _filter: FILTER,
+    _config: {MaxTransfer: Math.max(1, Math.floor(bwRemaining())) + "B", CutoffMode: "soft", Transfers: Math.min(16, Number(st.settings.transfers)), Checkers: 16}});
+  log(`Early backup: sending ${name}'s finished files to Google Drive`);
+}
+async function finishEarly(j) {
+  const g = await rc("core/stats", {group: j.group, short: true}).catch(() => ({}));
+  const sent = g.bytes || 0, err = j.status.error || "";
+  const w = bwNow(); if (!w.start) w.start = Date.now(); w.used += sent;
+  if (/upload limit|userRateLimitExceeded|quotaExceeded|exceeded.*quota/i.test(err)) w.used = bwBudget();
+  await saveBw();
+  st.bkEarly[j.name] = {...(st.bkEarly[j.name] || {}), last: Date.now(), sent: ((st.bkEarly[j.name] || {}).sent || 0) + sent}; saveEarly();
+  if (err && !/max transfer|not found|cancel|stopp|upload limit|RateLimit|quota/i.test(err)) log(`${j.name}: early backup error: ${err}`, "e");
+  else if (sent) log(`${j.name}: ${fmtB(sent)} sent to Google Drive early`);
 }
 async function startBackup(r) {
   const w = bwNow(); if (!w.start) { w.start = Date.now(); await saveBw(); }
@@ -942,9 +972,15 @@ function renderBackups() {
     <div class="prog"><i style="width:${Math.min(100, used / budget * 100).toFixed(1)}%"></i></div>
     ${!st.remotes.includes(bkRemote()) ? `<div class="err">“${esc(bkRemote())}” isn't connected in rclone.</div>` : ""}`;
   const reps = [...st.reports.dropbox.values()].filter(r => r.status === "passed").sort((a, b) => (a.verifiedAt || "").localeCompare(b.verifiedAt || ""));
-  if (!reps.length) { $("#bkList").innerHTML = `<div class="empty" style="padding:22px">Projects show up here once they're verified in Dropbox.</div>`; return; }
+  const earlyRows = st.drops.dropbox.filter(n => !st.reports.dropbox.has(n) && (st.bkEarly[n] || st.jobs.some(j => j.kind === "bkearly" && j.name === n && !j.status.finished))).map(n => {
+    const j = st.jobs.find(j => j.kind === "bkearly" && j.name === n && !j.status.finished), g = j ? st.stats.get(j.group) || {} : {};
+    const sent = ((st.bkEarly[n] || {}).sent || 0) + (g.bytes || 0), sp = (g.transferring || []).reduce((a, t) => a + (t.speedAvg || 0), 0);
+    return `<tr><td>${esc(n)}</td><td>${fmtB((st.sizes.get("dropbox|" + n) || {}).bytes)}</td><td><span class="badge ${j ? "b-transferring" : "b-queued"}">${j ? "Copying early" : "Early batch sent"}</span></td>
+      <td><div style="font-size:12px;color:var(--muted)">${fmtB(sent)} sent so far while the project is still arriving in Dropbox${sp ? ` · ${fmtB(sp)}/s` : ""}</div></td><td></td></tr>`;
+  }).join("");
+  if (!reps.length && !earlyRows) { $("#bkList").innerHTML = `<div class="empty" style="padding:22px">Projects show up here once they're verified in Dropbox.</div>`; return; }
   const LBL = {copying: ["Copying", "b-transferring"], done: ["Backed up", "b-ready"], failed: ["Needs attention", "b-attention"], waiting: ["Waiting for next batch", "b-paused"], queued: ["Queued", "b-queued"]};
-  $("#bkList").innerHTML = `<div class="tablewrap"><table><tr><th>Project</th><th>Size</th><th>Status</th><th>Progress</th><th></th></tr>${reps.map(r => {
+  $("#bkList").innerHTML = `<div class="tablewrap"><table><tr><th>Project</th><th>Size</th><th>Status</th><th>Progress</th><th></th></tr>${earlyRows}${reps.map(r => {
     const stt = bkState(r), j = latestJob("backup", "dropbox", r.project), total = r.size.destination.bytes;
     const live = stt === "copying" ? (st.stats.get(j.group) || {}) : null;
     const done = stt === "done" ? total : Math.min(total, ((r.backup || {}).bytesSent || 0) + (live ? live.bytes || 0 : 0));
@@ -959,7 +995,7 @@ function renderBackups() {
 document.addEventListener("click", e => { const b = e.target.closest("[data-bkretry]"); if (b) retryBackup(b.dataset.bkretry); });
 function renderNow(items) {
   const act = items.filter(i => i.state === "transferring" || i.state === "verifying");
-  const bkJob = st.jobs.find(j => j.kind === "backup" && !j.status.finished);
+  const bkJob = st.jobs.find(j => isBk(j) && !j.status.finished);
   if (!act.length && bkJob) {
     const g = st.stats.get(bkJob.group) || {}, r = st.reports.dropbox.get(bkJob.name), total = r ? r.size.destination.bytes : g.totalBytes || 0;
     const done = Math.min(total, ((r && r.backup && r.backup.bytesSent) || 0) + (g.bytes || 0)), pct = total ? done / total * 100 : 0;

@@ -522,6 +522,8 @@ function projectState(lane, name) {
   if (copy && copy.status.finished && copy.status.success && !rep) return "verifying"; // copied, report not written yet
   return "queued";
 }
+// Fingerprint checks re-read whole projects from LucidLink, so only one runs at a time.
+const verifyBusy = () => Date.now() - (st.verifyStarting || 0) < 15000 || st.jobs.some(j => j.kind === "verify" && !j.status.finished);
 async function advance() {
   const s = st.settings;
   let active = 0;
@@ -541,12 +543,12 @@ async function advance() {
       if (ver && !ver.status.finished) continue;
       const fresh = ver && ver.status.finished && ver.status.output && typeof ver.status.output.success === "boolean" && new Date(ver.status.startTime || 0) > new Date(rep.verifiedAt || 0);
       if (fresh) { run(key, () => finishVerify(p.lane, p.name, ver, true)); continue; }
-      if (!st.jobs.some(j => j.kind === "verify" && !j.status.finished)) run(key, () => beginVerify(p.lane, p.name)); // one at a time
+      if (!verifyBusy()) { st.verifyStarting = Date.now(); run(key, () => beginVerify(p.lane, p.name)); } // one at a time
       continue;
     }
     if (rep) continue;
     // copy finished OK and no verification yet -> verify
-    if (copy && copy.status.finished && copy.status.success && (!ver || ver.id < copy.id)) { run(key, () => beginVerify(p.lane, p.name)); continue; }
+    if (copy && copy.status.finished && copy.status.success && (!ver || ver.id < copy.id)) { if (!verifyBusy()) { st.verifyStarting = Date.now(); run(key, () => beginVerify(p.lane, p.name)); } continue; }
     // verification finished -> write the report
     if (ver && ver.status.finished && copy && ver.id > copy.id) { run(key, () => finishVerify(p.lane, p.name, ver)); continue; }
     if (p.state === "queued" && s.autoStart && active < s.parallel) { active++; run(key, () => startCopy(p.lane, p.name)); }
@@ -582,7 +584,7 @@ async function beginVerify(lane, name) {
   const src = join(dropFs(lane), name), dst = join(laneFs(lane), name);
   if (true) { // fingerprint check is mandatory
     await startJob("verify", lane, name, "operations/check", {srcFs: src, dstFs: dst, oneWay: true, _filter: FILTER,
-      _config: {Checkers: Number(st.settings.transfers) * 2}});
+      _config: {Checkers: 8}});
     log(`Verifying ${name}: matching every file's fingerprint`);
   } else {
     // quick mode: a "verify" job that just measures the destination

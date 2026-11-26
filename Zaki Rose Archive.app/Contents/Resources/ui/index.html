@@ -197,6 +197,11 @@ td{padding:10px;border-bottom:1px solid var(--line)}
     <div id="pipeline"></div>
   </div>
 
+  <div class="sec">
+    <div class="sech"><h2>Verified</h2><span class="sub">Every file fingerprint-matched in Dropbox. Safe to remove from LucidLink whenever you're ready. There's no rush; nothing here is checked again unless a file changes.</span></div>
+    <div id="verified"></div>
+  </div>
+
   <div class="sec" id="bkSec" hidden>
     <div class="sech"><h2>Google Drive backup</h2><span class="sub">Dropbox → Google Drive, in daily batches</span></div>
     <div id="bkWin" class="nowbar" style="margin:0 0 12px"></div>
@@ -342,7 +347,7 @@ const st = {
   reportMods: new Map(), sizes: new Map(),      // key -> {count,bytes}
   busy: new Set(), phase: new Map(), errors: new Map(),
   jobs: loadJobs(), stats: new Map(), totalSpeed: 0, limit: null,
-  bw: {start: null, used: 0}, reportsOk: {}, bkEarly: loadEarly(),
+  bw: {start: null, used: 0}, reportsOk: {}, inc: new Map(), incDone: new Set(), lastWatch: new Map(), bkEarly: loadEarly(),
   prevState: new Map(), log: [], llDu: null, dbxAbout: null, lastScan: 0, lastAbout: 0
 };
 
@@ -510,12 +515,17 @@ async function refreshAbout() {
 function projectState(lane, name) {
   const key = lane + "|" + name, rep = st.reports[lane].get(name);
   const copy = latestJob("copy", lane, name), ver = latestJob("verify", lane, name);
+  if (rep && rep.confirmedAt) return "archived";
   if (copy && !copy.status.finished) return "transferring";
   if (ver && !ver.status.finished) return "verifying";
   if (st.phase.get(key)) return st.phase.get(key);
   if (rep && rep.confirmedAt) return "archived";
   if (rep && rep.status === "passed" && !rep.confirmedAt && !isFull(rep)) return "verifying";
-  if (rep && rep.status === "passed" && !rep.confirmedAt) return "ready";
+  if (rep && rep.status === "passed" && !rep.confirmedAt) {
+    if (["icopy", "icheck"].some(k => { const j = latestJob(k, lane, name); return j && !j.status.finished; })) return "updating";
+    if (rep.incError) return "attention";
+    return "ready";
+  }
   if (rep && rep.status === "failed") return "attention";
   if (st.settings.held.includes(key)) return "paused";
   if (copy && copy.status.finished && !copy.status.success) return "attention";
@@ -579,11 +589,77 @@ async function startCopy(lane, name) {
   });
   log(`Started ${name} → ${LANES[lane]}`, "g");
 }
+/* ---------- fingerprint ledger: each file is fingerprinted once ----------
+   A verified report keeps files: {path: [size, modTime]} for every file whose fingerprint matched.
+   Later, only files that are new or changed (different size or time) are copied and checked. */
+const globEsc = p => p.replace(/[\\\[\]{}*?]/g, c => "\\" + c);
+const onlyFiles = paths => ({FilterRule: [...FILTER.ExcludeRule.map(r => "- " + r), ...paths.map(p => "+ /" + globEsc(p)), "- **"]});
+async function listFiles(fs) {
+  const r = await rc("operations/list", {fs, remote: "", opt: {recurse: true, filesOnly: true}, _filter: FILTER});
+  const m = {}; for (const f of r.list || []) m[f.Path] = [f.Size, f.ModTime]; return m;
+}
+const sameTime = (a, b) => Math.abs(new Date(a) - new Date(b)) < 2000;
+function pendingFiles(rep, listing) {
+  const led = rep.files || {}, out = [];
+  for (const [p, [size, mod]] of Object.entries(listing)) { const l = led[p]; if (!l || l[0] !== size || !sameTime(l[1], mod)) out.push(p); }
+  return out;
+}
+// Older verified reports have no per-file ledger: record one from the listings without re-reading anything.
+// Only files whose size and time already match the copy are recorded; anything else gets checked.
+async function baselineLedger(lane, name, rep) {
+  const [src, dst] = await Promise.all([listFiles(join(dropFs(lane), name)), listFiles(join(laneFs(lane), name))]);
+  const files = {};
+  for (const [p, v] of Object.entries(src)) { const d = dst[p]; if (d && d[0] === v[0]) files[p] = v; }
+  rep.files = files; rep.ledgerFrom = "baseline after full check"; await writeReport(lane, rep);
+  log(`${name}: recorded ${Object.keys(files).length} fingerprinted files; they won't be checked again`);
+}
+// Copy + fingerprint only the new/changed files of an already-verified project.
+async function startIncremental(lane, name, paths) {
+  st.inc.set(lane + "|" + name, paths);
+  await startJob("icopy", lane, name, "sync/copy", {srcFs: join(dropFs(lane), name), dstFs: join(laneFs(lane), name), _filter: onlyFiles(paths),
+    _config: {Transfers: Number(st.settings.transfers), Checkers: 8}});
+  log(`${name}: ${paths.length} new or changed file${paths.length === 1 ? "" : "s"}; copying and checking only ${paths.length === 1 ? "that one" : "those"}`);
+}
+async function finishIncremental(lane, name, kind, job) {
+  const key = lane + "|" + name, rep = st.reports[lane].get(name);
+  const paths = st.inc.get(key) || pendingFiles(rep, await listFiles(join(dropFs(lane), name)));
+  if (kind === "icopy") {
+    if (!job.status.success) { rep.incError = friendlyErr(job.status.error) || "Copy failed"; await writeReport(lane, rep); return; }
+    await startJob("icheck", lane, name, "operations/check", {srcFs: join(dropFs(lane), name), dstFs: join(laneFs(lane), name), oneWay: true, combined: true,
+      _filter: onlyFiles(paths), _config: {Checkers: 8}});
+    return;
+  }
+  const out = job.status.output || {}, listing = await listFiles(join(dropFs(lane), name));
+  rep.files = rep.files || {};
+  for (const line of out.combined || []) if (line.startsWith("= ")) { const p = line.slice(2); if (listing[p]) rep.files[p] = listing[p]; }
+  const bad = [...(out.differ || []), ...(out.missingOnDst || []), ...(out.error || [])];
+  rep.incError = bad.length ? `${bad.length} changed file(s) didn't match after copying: ${bad.slice(0, 3).join(", ")}` : null;
+  rep.updates = [...(rep.updates || []), {at: new Date().toISOString(), files: paths.length, ok: !bad.length}];
+  const sz = await rc("operations/size", {fs: join(dropFs(lane), name), _filter: FILTER}); rep.size.source = sz;
+  await writeReport(lane, rep); st.inc.delete(key);
+  log(`${name}: ${bad.length ? "update needs attention" : `${paths.length} updated file(s) fingerprinted; project still verified`}`, bad.length ? "e" : "g");
+}
+// Look at verified projects every so often; only new/changed files ever get work.
+async function watchVerified() {
+  for (const lane of Object.keys(LANES)) for (const name of st.drops[lane]) {
+    const rep = st.reports[lane].get(name), key = lane + "|" + name;
+    if (!rep || rep.confirmedAt || rep.status !== "passed" || !isFull(rep) || st.busy.has(key)) continue;
+    if (["icopy", "icheck"].some(k => { const j = latestJob(k, lane, name); return j && !j.status.finished; })) continue;
+    const ic = latestJob("icheck", lane, name), icp = latestJob("icopy", lane, name);
+    const done = j => j && j.status.finished && !st.incDone.has(j.id + "@" + j.exec);
+    if (done(icp) && (!ic || ic.id < icp.id)) { st.incDone.add(icp.id + "@" + icp.exec); run(key, () => finishIncremental(lane, name, "icopy", icp)); continue; }
+    if (done(ic)) { st.incDone.add(ic.id + "@" + ic.exec); run(key, () => finishIncremental(lane, name, "icheck", ic)); continue; }
+    if (!rep.files) { run(key, () => baselineLedger(lane, name, rep)); continue; }
+    if (Date.now() - (st.lastWatch.get(key) || 0) < 10 * 60e3) continue;
+    st.lastWatch.set(key, Date.now());
+    run(key, async () => { const pend = pendingFiles(rep, await listFiles(join(dropFs(lane), name))); if (pend.length) await startIncremental(lane, name, pend); });
+  }
+}
 async function beginVerify(lane, name) {
   const key = lane + "|" + name;
   const src = join(dropFs(lane), name), dst = join(laneFs(lane), name);
   if (true) { // fingerprint check is mandatory
-    await startJob("verify", lane, name, "operations/check", {srcFs: src, dstFs: dst, oneWay: true, _filter: FILTER,
+    await startJob("verify", lane, name, "operations/check", {srcFs: src, dstFs: dst, oneWay: true, combined: true, _filter: FILTER,
       _config: {Checkers: 8}});
     log(`Verifying ${name}: matching every file's fingerprint`);
   } else {
@@ -617,8 +693,9 @@ async function finishVerify(lane, name, verJob, upgrade = false) {
     size: {source: srcSize, destination: dstSize, ok: sizeOk}, check, media, mediaOk,
     status: sizeOk && check.ok && mediaOk ? "passed" : "failed", confirmedAt: null
   };
+  if (out.combined) { const listing = await listFiles(src); report.files = {}; for (const l of out.combined) if (l.startsWith("= ") && listing[l.slice(2)]) report.files[l.slice(2)] = listing[l.slice(2)]; }
   await writeReport(lane, report);
-  if (report.status === "passed") notify("Ready to confirm", `${name} is fully copied to ${LANES[lane]} and verified.`);
+  if (report.status === "passed") notify("Verified", `${name} is fully copied to ${LANES[lane]} and every file's fingerprint matches. Remove it from LucidLink whenever you're ready.`);
   else notify("Needs attention", `${name} didn't pass verification.`);
   log(`${name}: verification ${report.status}`, report.status === "passed" ? "g" : "e");
 }
@@ -899,11 +976,13 @@ function openConfirm(lane, name) {
 async function confirmRemove(lane, name) {
   const key = lane + "|" + name, r = st.reports[lane].get(name), src = join(dropFs(lane), name);
   if (!isFull(r)) throw new Error(`${name} hasn't passed a full fingerprint check yet, so it can't be removed.`);
-  const now = await rc("operations/size", {fs: src, _filter: FILTER});
-  if (now.count !== r.size.source.count || now.bytes !== r.size.source.bytes) {
-    await retryProject(lane, name);
-    throw new Error(`${name} changed on LucidLink since it was verified, so it's being copied and verified again.`);
+  if (!r.files) throw new Error(`${name} is still recording its fingerprint list. Try again in a minute.`);
+  const pend = pendingFiles(r, await listFiles(src));
+  if (pend.length) {
+    await startIncremental(lane, name, pend);
+    throw new Error(`${pend.length} file(s) in ${name} are new or changed since verification. Only those are being copied and checked; the rest stay verified.`);
   }
+  const now = await rc("operations/size", {fs: src, _filter: FILTER});
   st.phase.set(key, "removing"); render();
   await rc("operations/purge", {fs: dropFs(lane), remote: name});
   await new Promise(r => setTimeout(r, 1500));
@@ -921,7 +1000,7 @@ window.closeModal = closeModal;
 
 /* ---------- rendering ---------- */
 const STEPS = [["queued", "Queued"], ["transferring", "Transferring"], ["verifying", "Verifying"], ["media", "Media check"], ["ready", "Ready to confirm"]];
-const LABEL = {queued: "Queued", transferring: "Transferring", verifying: "Verifying", media: "Media check", ready: "Ready to confirm", attention: "Needs attention", paused: "Paused", removing: "Removing…"};
+const LABEL = {updating: "Updating changed files", queued: "Queued", transferring: "Transferring", verifying: "Verifying", media: "Media check", ready: "Ready to confirm", attention: "Needs attention", paused: "Paused", removing: "Removing…"};
 function render() {
   if (!st.settings) return;
   const s = st.settings;
@@ -941,9 +1020,10 @@ function render() {
   for (const lane of Object.keys(LANES)) for (const name of st.drops[lane]) {
     const state = projectState(lane, name);
     if (state === "archived" && !st.errors.get(lane + "|" + name)) continue;
+    if (state === "ready") continue; // lives in the Verified section
     items.push({lane, name, state: state === "archived" ? "attention" : state});
   }
-  const order = {attention: 0, ready: 1, transferring: 2, verifying: 2, media: 2, removing: 2, paused: 3, queued: 4};
+  const order = {updating: 2, attention: 0, ready: 1, transferring: 2, verifying: 2, media: 2, removing: 2, paused: 3, queued: 4};
   items.sort((a, b) => order[a.state] - order[b.state] || a.name.localeCompare(b.name));
   for (const it of items) {
     const key = it.lane + "|" + it.name, prev = st.prevState.get(key);
@@ -981,6 +1061,7 @@ function render() {
     ${hist.map(r => `<tr><td>${esc(r.project)}</td><td>${esc(r.destinationName)}</td><td>${fmtB(r.size.source.bytes)}</td><td>${r.size.source.count.toLocaleString()}</td><td>${when(r.confirmedAt)}</td>${s.backup.enabled ? `<td>${r.lane !== "dropbox" ? "—" : r.backup?.status === "done" ? '<span class="ok">✓ Backed up</span>' : esc({copying: "Copying", failed: "Needs attention", waiting: "Next batch", queued: "Queued"}[bkState(r)])}</td>` : ""}
     <td><a href="#" data-report='${esc(JSON.stringify([r.lane, r.project]))}'>Report</a></td></tr>`).join("")}</table></div>`
     : `<div class="empty" style="padding:22px">Nothing archived yet.</div>`;
+  renderVerified();
   renderBackups();
   renderNow(items);
   renderSetup();
@@ -1024,6 +1105,18 @@ function renderBackups() {
   }).join("")}</table></div>`;
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-bkretry]"); if (b) retryBackup(b.dataset.bkretry); });
+function renderVerified() {
+  const rows = [];
+  for (const lane of Object.keys(LANES)) for (const name of st.drops[lane]) if (projectState(lane, name) === "ready") rows.push(st.reports[lane].get(name));
+  $("#verified").innerHTML = rows.length ? `<div class="tablewrap"><table><tr><th>Project</th><th>Went to</th><th>Size</th><th>Files</th><th>Verified</th>${st.settings.backup.enabled ? "<th>Google Drive</th>" : ""}<th></th></tr>
+    ${rows.map(r => `<tr data-lane="${r.lane}" data-name="${esc(r.project)}"><td><b>${esc(r.project)}</b><div style="font-size:12px;color:var(--ok)">✓ ${Object.keys(r.files || {}).length || r.size.source.count} files fingerprint-matched${(r.updates || []).length ? ` · ${r.updates.length} update${r.updates.length > 1 ? "s" : ""} checked` : ""}</div></td>
+      <td>${esc(r.destinationName)}</td><td>${fmtB(r.size.source.bytes)}</td><td>${r.size.source.count.toLocaleString()}</td><td>${when(r.verifiedAt)}</td>
+      ${st.settings.backup.enabled ? `<td>${r.lane !== "dropbox" ? "—" : r.backup?.status === "done" ? '<span class="ok">✓ Backed up</span>' : esc({copying: "Copying", failed: "Needs attention", waiting: "Next batch", queued: "Queued"}[bkState(r)])}</td>` : ""}
+      <td style="white-space:nowrap"><a class="btn" href="#" data-report='${esc(JSON.stringify([r.lane, r.project]))}' style="text-decoration:none">Report</a>
+      <button class="btn" data-vconfirm="1">Remove from LucidLink</button></td></tr>`).join("")}</table></div>`
+    : `<div class="empty" style="padding:22px">Verified projects show up here.</div>`;
+}
+$("#verified").addEventListener("click", e => { const b = e.target.closest("[data-vconfirm]"); if (!b) return; const tr = b.closest("tr"); openConfirm(tr.dataset.lane, tr.dataset.name); });
 function renderNow(items) {
   const act = items.filter(i => i.state === "transferring" || i.state === "verifying");
   const bkJob = st.jobs.find(j => isBk(j) && !j.status.finished);
@@ -1097,7 +1190,8 @@ function cardHtml(it) {
   const btns = [];
   if (state === "ready") btns.push(`<a class="btn" href="#" data-report='${esc(JSON.stringify([lane, name]))}' style="text-decoration:none">View report</a>`,
     `<button class="btn primary" data-a="confirm">Confirm &amp; remove from LucidLink</button>`);
-  if (state === "attention" && !rep?.confirmedAt) { if (rep) btns.push(`<a class="btn" href="#" data-report='${esc(JSON.stringify([lane, name]))}' style="text-decoration:none">View report</a>`); btns.push(`<button class="btn" data-a="retry">Try again</button>`); }
+  if (state === "attention" && rep?.incError) { btns.push(`<button class="btn" data-a="recheck">Check changed files again</button>`); }
+  else if (state === "attention" && !rep?.confirmedAt) { if (rep) btns.push(`<a class="btn" href="#" data-report='${esc(JSON.stringify([lane, name]))}' style="text-decoration:none">View report</a>`); btns.push(`<button class="btn" data-a="retry">Try again</button>`); }
   if (state === "transferring" || state === "verifying") btns.push(`<button class="btn" data-a="pause">Pause</button>`);
   if (state === "paused") btns.push(`<button class="btn" data-a="resume">Resume</button>`);
   if (state === "queued" && !st.settings.autoStart) btns.push(`<button class="btn primary" data-a="start">Start</button>`);
@@ -1107,7 +1201,7 @@ function cardHtml(it) {
     <div class="ctop"><span class="pname">${esc(name)}</span><span class="dest">→ ${esc(LANES[lane])}</span>
       <span class="badge b-${state}">${LABEL[state] || state}</span><div class="cact">${btns.join("")}</div></div>
     ${state === "paused" || state === "attention" ? "" : `<div class="steps">${steps}</div>`}
-    ${body}${err || copyErr ? `<div class="err">${esc(friendlyErr(err || copyErr))}</div>` : ""}</div>`;
+    ${body}${rep?.incError ? `<div class="err">${esc(rep.incError)} The rest of the project is still verified.</div>` : ""}${err || copyErr ? `<div class="err">${esc(friendlyErr(err || copyErr))}</div>` : ""}</div>`;
 }
 function renderSetup() {
   const s = st.settings, need = [];
@@ -1133,6 +1227,7 @@ $("#pipeline").addEventListener("click", e => {
   const c = b.closest(".card"), lane = c.dataset.lane, name = c.dataset.name, a = b.dataset.a;
   if (a === "confirm") openConfirm(lane, name);
   if (a === "retry") retryProject(lane, name);
+  if (a === "recheck") { const r = st.reports[lane].get(name); if (r) { r.incError = null; writeReport(lane, r); st.lastWatch.delete(lane + "|" + name); render(); } }
   if (a === "pause") stopProject(lane, name);
   if (a === "resume") resumeProject(lane, name);
   if (a === "start") run(lane + "|" + name, () => startCopy(lane, name));
@@ -1269,6 +1364,7 @@ async function tick() {
     if (Date.now() - st.lastAbout > 300000) await refreshAbout();
     if (tickN++ % 20 === 0) { const want = currentLimit(st.settings.speed); await rc("core/bwlimit", {rate: want}).catch(() => {}); }
     await advance();
+    await watchVerified();
     await advanceBackups();
   } catch (e) {
     if (st.online) log("Lost connection to the engine", "e");

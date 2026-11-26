@@ -268,10 +268,8 @@ td{padding:10px;border-bottom:1px solid var(--line)}
     <div class="f"><label>Projects at once</label><select id="s_parallel"><option>1</option><option>2</option><option>3</option></select></div>
     <div class="f"><label>Media spot-checks per project</label><select id="s_samples"><option>0</option><option>3</option><option>6</option><option>10</option></select></div>
   </div>
-  <div class="f"><label>Verification</label><select id="s_verify">
-    <option value="full">Full: re-read every source file and match fingerprints (recommended)</option>
-    <option value="quick">Quick: trust upload fingerprints, compare file counts and sizes</option></select>
-    <div class="hint">Full reads each project from LucidLink a second time. Quick is faster and still checks each file as it uploads.</div></div>
+  <div class="f"><label>Verification</label>
+    <div class="hint" style="font-size:13px;color:var(--text)">✓ Always on: every file is re-read from LucidLink and its fingerprint matched against the copy before a project can be removed. MediaInfo spot-checks are extra.</div></div>
 
   <h4>Cost model</h4>
   <div class="row">
@@ -318,6 +316,7 @@ document.addEventListener("click", e => { const a = e.target.closest("[data-repo
   const [lane, name] = JSON.parse(a.dataset.report); openReport(reportsFs(lane), name + ".html"); });
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const isFull = rep => !!(rep && rep.check && rep.check.mode === "full" && rep.check.ok);
 const LANES = {dropbox: "Dropbox", gdrive: "Google Drive"};
 const FILTER = {ExcludeRule: [".DS_Store", "._*", "Thumbs.db", "desktop.ini", "Icon\r", ".lucid*", "*.partial"]};
 const MEDIA_EXT = /\.(mov|mp4|m4v|mxf|mkv|avi|mts|m2ts|r3d|braw|ari|crm|wav|aif|aiff|mp3|m4a|dng|exr|dpx)$/i;
@@ -515,6 +514,7 @@ function projectState(lane, name) {
   if (ver && !ver.status.finished) return "verifying";
   if (st.phase.get(key)) return st.phase.get(key);
   if (rep && rep.confirmedAt) return "archived";
+  if (rep && rep.status === "passed" && !rep.confirmedAt && !isFull(rep)) return "verifying";
   if (rep && rep.status === "passed" && !rep.confirmedAt) return "ready";
   if (rep && rep.status === "failed") return "attention";
   if (st.settings.held.includes(key)) return "paused";
@@ -537,6 +537,13 @@ async function advance() {
     const rep = st.reports[p.lane].get(p.name);
     if (!st.reportsOk[p.lane]) continue; // never start work without knowing the report history
     if (rep && rep.confirmedAt) { cleanLeftover(p.lane, p.name); continue; }
+    if (rep && rep.status === "passed" && !isFull(rep)) {
+      if (ver && !ver.status.finished) continue;
+      const fresh = ver && ver.status.finished && ver.status.output && typeof ver.status.output.success === "boolean" && new Date(ver.status.startTime || 0) > new Date(rep.verifiedAt || 0);
+      if (fresh) { run(key, () => finishVerify(p.lane, p.name, ver, true)); continue; }
+      if (!st.jobs.some(j => j.kind === "verify" && !j.status.finished)) run(key, () => beginVerify(p.lane, p.name)); // one at a time
+      continue;
+    }
     if (rep) continue;
     // copy finished OK and no verification yet -> verify
     if (copy && copy.status.finished && copy.status.success && (!ver || ver.id < copy.id)) { run(key, () => beginVerify(p.lane, p.name)); continue; }
@@ -573,7 +580,7 @@ async function startCopy(lane, name) {
 async function beginVerify(lane, name) {
   const key = lane + "|" + name;
   const src = join(dropFs(lane), name), dst = join(laneFs(lane), name);
-  if (st.settings.verify === "full") {
+  if (true) { // fingerprint check is mandatory
     await startJob("verify", lane, name, "operations/check", {srcFs: src, dstFs: dst, oneWay: true, _filter: FILTER,
       _config: {Checkers: Number(st.settings.transfers) * 2}});
     log(`Verifying ${name}: matching every file's fingerprint`);
@@ -583,7 +590,7 @@ async function beginVerify(lane, name) {
     log(`Verifying ${name}: quick count and size match`);
   }
 }
-async function finishVerify(lane, name, verJob) {
+async function finishVerify(lane, name, verJob, upgrade = false) {
   const key = lane + "|" + name, s = st.settings;
   const src = join(dropFs(lane), name), dst = join(laneFs(lane), name);
   const copy = latestJob("copy", lane, name);
@@ -595,7 +602,7 @@ async function finishVerify(lane, name, verJob) {
   const [srcSize, dstSize] = await Promise.all([
     rc("operations/size", {fs: src, _filter: FILTER}), rc("operations/size", {fs: dst, _filter: FILTER})]);
   const out = verJob.status.output || {};
-  const check = s.verify === "full"
+  const check = verJob.status.output && typeof verJob.status.output.success === "boolean"
     ? {mode: "full", ok: !!out.success, hashType: out.hashType, differ: out.differ || [], missing: out.missingOnDst || [], errors: out.error || [], note: out.status || verJob.status.error}
     : {mode: "quick", ok: verJob.status.success, hashType: "upload-time " + (lane === "dropbox" ? "dropbox" : "md5"), differ: [], missing: [], errors: [], note: "Fingerprints checked during upload"};
   const sizeOk = srcSize.count === dstSize.count && srcSize.bytes === dstSize.bytes;
@@ -889,6 +896,7 @@ function openConfirm(lane, name) {
 }
 async function confirmRemove(lane, name) {
   const key = lane + "|" + name, r = st.reports[lane].get(name), src = join(dropFs(lane), name);
+  if (!isFull(r)) throw new Error(`${name} hasn't passed a full fingerprint check yet, so it can't be removed.`);
   const now = await rc("operations/size", {fs: src, _filter: FILTER});
   if (now.count !== r.size.source.count || now.bytes !== r.size.source.bytes) {
     await retryProject(lane, name);
@@ -1138,7 +1146,7 @@ async function openSettings() {
   $("#s_gdRemote").innerHTML = opts(s.lanes.gdrive.remote) + (st.remotes.includes(s.lanes.gdrive.remote) ? "" : `<option selected>${esc(s.lanes.gdrive.remote)}</option>`);
   const v = {s_dropDropbox: dropFs("dropbox"), s_dropGdrive: dropFs("gdrive"), s_dbxPath: s.lanes.dropbox.path,
     s_gdPath: s.lanes.gdrive.path, s_reports: s.reportsFolder, s_wStart: s.speed.start, s_wEnd: s.speed.end, s_wLimit: s.speed.work,
-    s_oLimit: s.speed.off, s_transfers: String(s.transfers), s_parallel: String(s.parallel), s_samples: String(s.samples), s_verify: s.verify,
+    s_oLimit: s.speed.off, s_transfers: String(s.transfers), s_parallel: String(s.parallel), s_samples: String(s.samples), 
     s_llPer: s.money.llPerTB, s_llTarget: s.money.llTargetTB, s_dbxPer: s.money.dbxPerTB, s_dbxFree: s.money.dbxFreeTB};
   for (const k in v) $("#" + k).value = v[k];
   $("#s_bkEnabled").checked = s.backup.enabled; $("#s_bkPath").value = s.backup.path; $("#s_bkDaily").value = String(s.backup.dailyGB);
@@ -1159,7 +1167,7 @@ $("#saveSettings").onclick = async () => {
   s.lanes.gdrive.remote = g("s_gdRemote"); s.lanes.gdrive.path = g("s_gdPath"); s.lanes.gdrive.enabled = $("#s_gdEnabled").checked;
   s.reportsFolder = g("s_reports") || "_Archive Reports";
   s.speed = {start: g("s_wStart") || "08:00", end: g("s_wEnd") || "19:00", work: g("s_wLimit"), off: g("s_oLimit"), weekends: $("#s_weekends").checked};
-  s.transfers = Number(g("s_transfers")); s.parallel = Number(g("s_parallel")); s.samples = Number(g("s_samples")); s.verify = g("s_verify");
+  s.transfers = Number(g("s_transfers")); s.parallel = Number(g("s_parallel")); s.samples = Number(g("s_samples")); s.verify = "full";
   s.autoStart = $("#s_auto").checked;
   s.money = {llPerTB: +g("s_llPer") || 600, llTargetTB: +g("s_llTarget") || 45, dbxPerTB: +g("s_dbxPer") || 120, dbxFreeTB: +g("s_dbxFree") || 0};
   try { await saveSettings(); toast("Settings saved"); log("Settings saved");

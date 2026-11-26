@@ -519,6 +519,7 @@ function projectState(lane, name) {
   if (rep && rep.status === "failed") return "attention";
   if (st.settings.held.includes(key)) return "paused";
   if (copy && copy.status.finished && !copy.status.success) return "attention";
+  if (copy && copy.status.finished && copy.status.success && !rep) return "verifying"; // copied, report not written yet
   return "queued";
 }
 async function advance() {
@@ -720,19 +721,32 @@ async function mediainfo() {
   if (!MI) {
     const buf = await (await afetch("mediainfo/MediaInfoModule.wasm")).arrayBuffer();
     const url = URL.createObjectURL(new Blob([buf], {type: "application/wasm"}));
-    MI = await MediaInfo.mediaInfoFactory({format: "object", locateFile: () => url});
+    MI = await MediaInfo.mediaInfoFactory({format: "object", chunkSize: 4 * 1048576, coverData: false, locateFile: () => url});
   }
   return MI;
 }
+// Each spot-check reads at most 256 MB per file and gives up after 2 minutes, so a huge
+// camera file (or a slow cloud read) can never stall the pipeline.
 function analyzeUrl(url, size) {
   const job = miQueue.then(async () => {
     const m = await mediainfo();
-    return m.analyzeData(size, async (len, off) => {
-      if (off >= size) return new Uint8Array(0);
-      const r = await afetch(url, {headers: {Range: `bytes=${off}-${Math.min(size, off + len) - 1}`}});
-      if (!r.ok) throw new Error("read failed " + r.status);
-      return new Uint8Array(await r.arrayBuffer());
-    });
+    const started = Date.now(); let read = 0;
+    try {
+      return await m.analyzeData(size, async (len, off) => {
+        if (off >= size) return new Uint8Array(0);
+        if (read > 256 * 1048576 || Date.now() - started > 120000) throw new Error("SKIP: file too large or slow to sample");
+        const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 60000);
+        try {
+          const r = await afetch(url, {headers: {Range: `bytes=${off}-${Math.min(size, off + len) - 1}`}, signal: ctl.signal});
+          if (!r.ok) throw new Error("read failed " + r.status);
+          const buf = new Uint8Array(await r.arrayBuffer()); read += buf.length; return buf;
+        } catch (e) { if (e.name === "AbortError") throw new Error("SKIP: read timed out"); throw e; }
+        finally { clearTimeout(t); }
+      });
+    } catch (e) {
+      try { m.close(); } catch {} MI = null; // start fresh after an aborted read
+      throw e;
+    }
   });
   miQueue = job.catch(() => {});
   return job;
@@ -766,7 +780,10 @@ async function mediaCheck(src, dst, n, key) {
       row.fields = keys.map(k => ({k, src: a[k] ?? "—", dst: b[k] ?? "—", ok: a[k] === b[k]}));
       row.ok = row.fields.length > 0 && row.fields.every(x => x.ok);
       if (!row.fields.length) row.ok = null; // unreadable format on both sides: not a failure
-    } catch (e) { row.ok = false; row.error = e.message; }
+    } catch (e) {
+      if (/^SKIP/.test(e.message)) { row.ok = null; row.note = e.message.replace(/^SKIP: /, "Skipped: "); }
+      else { row.ok = false; row.error = e.message; }
+    }
     results.push(row);
   }
   st.mediaNow = null;
@@ -777,7 +794,7 @@ async function mediaCheck(src, dst, n, key) {
 function reportHtml(r) {
   const okc = v => v ? "#2f8a55" : "#c0392b";
   const media = r.media.length ? r.media.map(m => `
-    <h3 style="margin:22px 0 6px;font:600 14px -apple-system,sans-serif">${esc(m.file)} <span style="color:${m.ok === false ? "#c0392b" : "#2f8a55"}">${m.ok === false ? "✗ mismatch" : m.ok === null ? "– not a readable media format" : "✓ identical"}</span></h3>
+    <h3 style="margin:22px 0 6px;font:600 14px -apple-system,sans-serif">${esc(m.file)} <span style="color:${m.ok === false ? "#c0392b" : "#2f8a55"}">${m.ok === false ? "✗ mismatch" : m.ok === null ? "– " + esc(m.note || "not a readable media format") : "✓ identical"}</span></h3>
     ${m.error ? `<p style="color:#c0392b">${esc(m.error)}</p>` : ""}
     <table><tr><th>Property</th><th>LucidLink (source)</th><th>${esc(r.destinationName)} (copy)</th></tr>
     ${m.fields.map(f => `<tr><td>${esc(f.k)}</td><td>${esc(f.src)}</td><td style="color:${okc(f.ok)}">${esc(f.dst)}</td></tr>`).join("")}</table>`).join("")

@@ -21,12 +21,8 @@ else
   curl -fsSL https://rclone.org/install.sh | sudo bash
 fi
 
-# 2. stop a running engine so files can be replaced
-if [ -s "$SUP/.engine" ]; then
-  curl -s -m 3 -u "zr:$(cat "$SUP/.engine")" -X POST http://127.0.0.1:5572/core/quit >/dev/null 2>&1 && say "Stopped the running engine" || true
-  sleep 1
-fi
-launchctl bootout "gui/$(id -u)/com.zakirose.archive.engine" >/dev/null 2>&1 || true
+# 2. the transfer engine keeps running during updates, so nothing in progress restarts.
+#    (Engine setting changes take effect the next time it starts.)
 
 # 3. download and install the app
 DEST="/Applications"; [ -w "$DEST" ] || { DEST="$HOME/Applications"; mkdir -p "$DEST"; }

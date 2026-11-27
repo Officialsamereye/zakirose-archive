@@ -198,6 +198,11 @@ td{padding:10px;border-bottom:1px solid var(--line)}
   </div>
 
   <div class="sec">
+    <div class="sech"><h2>Cost</h2><span class="sub">LucidLink vs Dropbox, from the rates in Settings</span></div>
+    <div id="cost"></div>
+  </div>
+
+  <div class="sec">
     <div class="sech"><h2>Verified</h2><span class="sub">Every file fingerprint-matched in Dropbox. Safe to remove from LucidLink whenever you're ready. There's no rush; nothing here is checked again unless a file changes.</span></div>
     <div id="verified"></div>
   </div>
@@ -278,12 +283,16 @@ td{padding:10px;border-bottom:1px solid var(--line)}
 
   <h4>Cost model</h4>
   <div class="row">
-    <div class="f"><label>LucidLink $ per TB / year</label><input id="s_llPer" type="number"></div>
-    <div class="f"><label>LucidLink target (TB)</label><input id="s_llTarget" type="number"></div>
+    <div class="f"><label>LucidLink $ per TB / month</label><input id="s_llPer" type="number" step="0.01"></div>
+    <div class="f"><label>LucidLink plan size (TB)</label><input id="s_llTarget" type="number"></div>
   </div>
   <div class="row">
-    <div class="f"><label>Dropbox $ per extra TB / year</label><input id="s_dbxPer" type="number"></div>
-    <div class="f"><label>Dropbox space already paid for (TB)</label><input id="s_dbxFree" type="number"></div>
+    <div class="f"><label>Dropbox $ per TB / month</label><input id="s_dbxPer" type="number" step="0.01"></div>
+    <div class="f"><label>LucidLink overage $ per TB / month</label><input id="s_dbxFree" type="number" step="0.01"></div>
+  </div>
+  <div class="row">
+    <div class="f"><label>LucidLink renewal discount ($ / year)</label><input id="s_llDisc" type="number"></div>
+    <div class="f"></div>
   </div>
 
   <div style="display:flex;gap:10px;margin-top:24px">
@@ -336,7 +345,7 @@ const DEFAULTS = {
   backup: {enabled: false, path: "", dailyGB: 700},
   transfers: 32, parallel: 1, autoStart: true, verify: "full", samples: 6,
   speed: {start: "08:00", end: "19:00", work: "25M", off: "off", weekends: true},
-  money: {llPerTB: 600, llTargetTB: 45, dbxPerTB: 120, dbxFreeTB: 10},
+  money: {v: 2, llPerTBmo: 46.04, llPlanTB: 45, dbxPerTBmo: 10, overPerTBmo: 80, discount: 1500},
   held: [], bwlimit: ""
 };
 
@@ -442,6 +451,7 @@ function currentLimit(sp) {
 async function loadSettings() {
   let s = {};
   try { const r = await afetch(serveUrl(st.env.supportDir, "settings.json"), {cache: "no-store"}); if (r.ok) s = await r.json(); } catch {}
+  if (s.money && s.money.v !== 2) delete s.money; // old yearly model → new monthly model
   st.settings = deepMerge(structuredClone(DEFAULTS), s);
 }
 function deepMerge(a, b) { for (const k in b) a[k] = b[k] && typeof b[k] === "object" && !Array.isArray(b[k]) ? deepMerge(a[k] || {}, b[k]) : b[k]; return a; }
@@ -1053,15 +1063,16 @@ function render() {
   hist.sort((a, b) => b.confirmedAt.localeCompare(a.confirmedAt));
   const moved = hist.reduce((a, r) => a + (r.removedBytes || r.size.source.bytes), 0);
   const movedDbx = hist.filter(r => r.lane === "dropbox").reduce((a, r) => a + (r.removedBytes || r.size.source.bytes), 0);
-  const m = s.money, save = TB(moved) * m.llPerTB - Math.max(0, TB(movedDbx) - m.dbxFreeTB) * m.dbxPerTB;
+  const m = s.money, save = TB(movedDbx) * (m.llPerTBmo - m.dbxPerTBmo) * 12;
   $("#kM").textContent = fmtB(moved).replace(/^0 B$/, "0 TB");
   $("#kMs").textContent = `${hist.length} project${hist.length === 1 ? "" : "s"} confirmed and removed`;
   $("#kS").textContent = money(Math.max(0, save));
-  $("#kSs").textContent = `$${m.llPerTB}/TB LucidLink vs $${m.dbxPerTB}/TB Dropbox past ${m.dbxFreeTB} TB`;
+  $("#kSs").textContent = `$${m.llPerTBmo}/TB/mo LucidLink vs $${m.dbxPerTBmo}/TB/mo Dropbox`;
+  renderCost(s.money, st.llDu && st.llDu.Total > 0 ? TB(st.llDu.Total - st.llDu.Free) : null);
   if (st.llDu && st.llDu.Total > 0) {
-    const used = st.llDu.Total - st.llDu.Free, tgt = m.llTargetTB * 1e12, scale = Math.max(st.llDu.Total, tgt * 1.15);
+    const used = st.llDu.Total - st.llDu.Free, tgt = m.llPlanTB * 1e12, scale = Math.max(st.llDu.Total, tgt * 1.15);
     $("#kLL").textContent = fmtB(used);
-    $("#kLLs").innerHTML = used > tgt ? `<span class="warn">${fmtB(used - tgt)} over the ${m.llTargetTB} TB target</span>` : `<span class="ok">Under the ${m.llTargetTB} TB target</span>`;
+    $("#kLLs").innerHTML = used > tgt ? `<span class="warn">${fmtB(used - tgt)} over the ${m.llPlanTB} TB target</span>` : `<span class="ok">Under the ${m.llPlanTB} TB target</span>`;
     $("#kLLm").style.width = Math.min(100, used / scale * 100) + "%";
     $("#kLLt").style.display = "block"; $("#kLLt").style.left = (tgt / scale * 100) + "%";
   } else { $("#kLL").textContent = "—"; $("#kLLs").textContent = s.lucidRoot ? "Drive doesn't report its size" : "Choose a drop folder in Settings"; }
@@ -1114,6 +1125,29 @@ function renderBackups() {
   }).join("")}</table></div>`;
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-bkretry]"); if (b) retryBackup(b.dataset.bkretry); });
+function renderCost(m, usedTB) {
+  const d$ = n => "$" + n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const ll = tb => tb * m.llPerTBmo * 12, dbx = tb => tb * m.dbxPerTBmo * 12;
+  const mo = tb => (ll(tb) - m.discount) / 12 / tb;
+  const plan = m.llPlanTB, used = usedTB == null ? null : Math.round(usedTB * 10) / 10;
+  const over = used == null ? 0 : Math.max(0, used - plan);
+  const cur = (plan * m.llPerTBmo * 12 - m.discount) / 12 + over * m.overPerTBmo;
+  const sizes = [plan, plan + 5, plan + 10];
+  const hyb = [[50, 0], [30, 20], [20, 30], [10, 40], [0, 50]];
+  const red = (1 - m.dbxPerTBmo / mo(50)) * 100;
+  $("#cost").innerHTML = `<div class="kpis" style="margin-top:0">
+    <div class="kpi"><div class="l">LucidLink / TB / month</div><div class="v">${d$(m.llPerTBmo)}</div><div class="s">${d$(mo(50))} after the ${money(m.discount)} discount (50 TB)</div></div>
+    <div class="kpi"><div class="l">Dropbox / TB / month</div><div class="v">${d$(m.dbxPerTBmo)}</div><div class="s">${(m.llPerTBmo / m.dbxPerTBmo).toFixed(1)}× cheaper than LucidLink</div></div>
+    <div class="kpi"><div class="l">Dropbox cost reduction</div><div class="v">${red.toFixed(2)}%</div><div class="s">vs LucidLink 50 TB incl. discount</div></div>
+    <div class="kpi"><div class="l">Right now${used != null ? ` · ${used} TB used` : ""}</div><div class="v">${d$(cur)}/mo</div><div class="s">${over > 0 ? `${plan} TB plan (after discount) + ${over.toFixed(1)} TB overage (${d$(over * m.overPerTBmo)}/mo)` : `within the ${plan} TB plan`}</div></div></div>
+  <div class="row" style="gap:14px;margin-top:12px">
+   <div class="tablewrap"><table><tr><th>Storage</th><th>LucidLink / yr</th><th>Dropbox / yr</th><th>Savings / yr</th><th>After discount</th></tr>
+    ${sizes.map(tb => `<tr><td>${tb} TB</td><td>${d$(ll(tb))}</td><td>${d$(dbx(tb))}</td><td>${d$(ll(tb) - dbx(tb))}</td><td>${d$(ll(tb) - m.discount - dbx(tb))}</td></tr>`).join("")}</table></div>
+   <div class="tablewrap"><table><tr><th>Hybrid (50 TB total)</th><th>Annual</th><th>Saves vs all LucidLink</th></tr>
+    ${hyb.map(([l, d]) => `<tr><td>${l ? l + " TB LucidLink" : ""}${l && d ? " + " : ""}${d ? d + " TB Dropbox" : ""}</td><td>${d$(ll(l) + dbx(d))}</td><td>${d$(ll(50) - ll(l) - dbx(d))}</td></tr>`).join("")}</table></div>
+  </div>
+  <div class="hint" style="margin-top:8px">Hybrid figures assume LucidLink lets you downsize at the same per-TB rate, before discounts. That needs to be negotiated.</div>`;
+}
 function renderVerified() {
   const rows = [];
   for (const lane of Object.keys(LANES)) for (const name of st.drops[lane]) if (projectState(lane, name) === "ready") rows.push(st.reports[lane].get(name));
@@ -1253,7 +1287,7 @@ async function openSettings() {
   const v = {s_dropDropbox: dropFs("dropbox"), s_dropGdrive: dropFs("gdrive"), s_dbxPath: s.lanes.dropbox.path,
     s_gdPath: s.lanes.gdrive.path, s_reports: s.reportsFolder, s_wStart: s.speed.start, s_wEnd: s.speed.end, s_wLimit: s.speed.work,
     s_oLimit: s.speed.off, s_transfers: String(s.transfers), s_parallel: String(s.parallel), s_samples: String(s.samples), 
-    s_llPer: s.money.llPerTB, s_llTarget: s.money.llTargetTB, s_dbxPer: s.money.dbxPerTB, s_dbxFree: s.money.dbxFreeTB};
+    s_llPer: s.money.llPerTBmo, s_llTarget: s.money.llPlanTB, s_dbxPer: s.money.dbxPerTBmo, s_dbxFree: s.money.overPerTBmo, s_llDisc: s.money.discount};
   for (const k in v) $("#" + k).value = v[k];
   $("#s_bkEnabled").checked = s.backup.enabled; $("#s_bkPath").value = s.backup.path; $("#s_bkDaily").value = String(s.backup.dailyGB);
   $("#s_gdEnabled").checked = s.lanes.gdrive.enabled; $("#s_weekends").checked = s.speed.weekends; $("#s_auto").checked = s.autoStart;
@@ -1275,7 +1309,7 @@ $("#saveSettings").onclick = async () => {
   s.speed = {start: g("s_wStart") || "08:00", end: g("s_wEnd") || "19:00", work: g("s_wLimit"), off: g("s_oLimit"), weekends: $("#s_weekends").checked};
   s.transfers = Number(g("s_transfers")); s.parallel = Number(g("s_parallel")); s.samples = Number(g("s_samples")); s.verify = "full";
   s.autoStart = $("#s_auto").checked;
-  s.money = {llPerTB: +g("s_llPer") || 600, llTargetTB: +g("s_llTarget") || 45, dbxPerTB: +g("s_dbxPer") || 120, dbxFreeTB: +g("s_dbxFree") || 0};
+  s.money = {v: 2, llPerTBmo: +g("s_llPer") || 46.04, llPlanTB: +g("s_llTarget") || 45, dbxPerTBmo: +g("s_dbxPer") || 10, overPerTBmo: +g("s_dbxFree") || 80, discount: +g("s_llDisc") || 0};
   try { await saveSettings(); toast("Settings saved"); log("Settings saved");
     if (Number(s.transfers) !== oldTransfers || Number(s.parallel) < oldParallel) restartCopies(); closeSettings(); st.reportMods.clear(); await scan(); await refreshAbout(); render(); }
   catch (e) { toast("Couldn't save: " + e.message); }
@@ -1381,7 +1415,7 @@ async function tick() {
   }
   ticking = false; render();
 }
-const PAGE_VERSION = "1.17";
+const PAGE_VERSION = "1.18";
 (async function boot() {
   try { st.env = await (await afetch("env.json", {cache: "no-store"})).json(); } catch { st.env = {}; }
   if (st.env.appVersion && PAGE_VERSION.indexOf("__") !== 0 && st.env.appVersion !== PAGE_VERSION && new URLSearchParams(location.search).get("v") !== st.env.appVersion) {

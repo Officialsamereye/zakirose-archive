@@ -245,7 +245,7 @@ td{padding:10px;border-bottom:1px solid var(--line)}
   <div class="f"><label>Back up into this Google Drive folder</label>
     <div class="pickrow"><input id="s_bkPath" placeholder="LucidLink Archive"><button type="button" class="btn" data-pick="dest|backup">Find folder…</button></div></div>
   <div class="row">
-    <div class="f"><label>Upload per 24 hours</label><select id="s_bkDaily"><option value="300">300 GB</option><option value="500">500 GB</option><option value="700">700 GB (recommended)</option></select></div>
+    <div class="f"><label>Upload per 24 hours</label><select id="s_bkDaily"><option value="300">300 GB</option><option value="500">500 GB</option><option value="700">700 GB</option><option value="2000">As much as Google allows (recommended)</option></select></div>
     <div class="f"><label>Google Drive connection (from rclone)</label><select id="s_gdRemote"></select></div>
   </div>
 
@@ -342,7 +342,7 @@ const DEFAULTS = {
   lanes: {dropbox: {remote: "Dropbox", path: "/Archive", enabled: true},
           gdrive: {remote: "GoogleDrive", path: "", enabled: false}},
   reportsFolder: "_Archive Reports",
-  backup: {enabled: false, path: "", dailyGB: 700},
+  backup: {enabled: false, path: "", dailyGB: 2000},
   transfers: 32, parallel: 1, autoStart: true, verify: "full", samples: 6,
   speed: {start: "08:00", end: "19:00", work: "25M", off: "off", weekends: true},
   money: {v: 2, llPerTBmo: 46.04, llPlanTB: 45, dbxPerTBmo: 10, overPerTBmo: 80, discount: 1500},
@@ -742,8 +742,22 @@ function saveEarly() { try { localStorage.setItem("zra.bkEarly", JSON.stringify(
 function bkLiveBytes() {
   let n = 0; for (const j of st.jobs) if (isBk(j) && !j.status.finished) n += (st.stats.get(j.group) || {}).bytes || 0; return n;
 }
+// Don't trust our own counter: once the day's amount looks used, test Google with a small real
+// upload every 30 minutes. If Google accepts it, start a fresh day right away.
+async function probeGoogle() {
+  if (Date.now() - (st.lastProbe || 0) < 30 * 60e3) return;
+  st.lastProbe = Date.now();
+  const fd = new FormData(); fd.append("file0", new Blob([new Uint8Array(4 * 1048576)]), "_zra_upload_probe.bin");
+  const r = await afetch(`/operations/uploadfile?fs=${encodeURIComponent(backupFs())}&remote=`, {method: "POST", body: fd}).catch(() => null);
+  if (r && r.ok) {
+    await rc("operations/deletefile", {fs: backupFs(), remote: "_zra_upload_probe.bin"}).catch(() => {});
+    st.bw = {start: Date.now(), used: 0}; await saveBw();
+    log("Google Drive is accepting uploads again; resuming backups", "g");
+  } else { st.bkProbeMsg = `Google Drive still refusing uploads (tested ${new Date().toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}). Testing again every 30 min.`; }
+}
 async function advanceBackups() {
   if (!bkReady()) return;
+  if (bwSpent() && !st.jobs.some(j => isBk(j) && !j.status.finished)) { await probeGoogle(); if (bwSpent()) return; }
   const reps = [...st.reports.dropbox.values()].filter(r => r.status === "passed");
   let running = st.jobs.some(j => isBk(j) && !j.status.finished);
   // record finished early batches
@@ -1100,7 +1114,7 @@ function renderBackups() {
   if (!s.backup.enabled) return;
   const used = bwNow().used + bkLiveBytes(), budget = bwBudget(), reset = bwResetAt();
   $("#bkWin").innerHTML = `<div class="top"><span class="lbl">Today</span><span class="ttl">${fmtB(Math.min(used, budget))} of ${fmtB(budget)} sent to Google Drive</span>
-    <span class="spd" style="font-size:14px;font-weight:600">${reset ? (bwSpent() ? "Next batch " : "Window resets ") + when(reset) : "Starts with the next project"}</span></div>
+    <span class="spd" style="font-size:14px;font-weight:600">${bwSpent() ? (st.bkProbeMsg || "Testing Google Drive…") : reset ? "Window resets " + when(reset) : "Starts with the next project"}</span></div>
     <div class="prog"><i style="width:${Math.min(100, used / budget * 100).toFixed(1)}%"></i></div>
     ${!st.remotes.includes(bkRemote()) ? `<div class="err">“${esc(bkRemote())}” isn't connected in rclone.</div>` : ""}`;
   const reps = [...st.reports.dropbox.values()].filter(r => r.status === "passed").sort((a, b) => (a.verifiedAt || "").localeCompare(b.verifiedAt || ""));
@@ -1415,7 +1429,7 @@ async function tick() {
   }
   ticking = false; render();
 }
-const PAGE_VERSION = "1.18";
+const PAGE_VERSION = "1.19";
 (async function boot() {
   try { st.env = await (await afetch("env.json", {cache: "no-store"})).json(); } catch { st.env = {}; }
   if (st.env.appVersion && PAGE_VERSION.indexOf("__") !== 0 && st.env.appVersion !== PAGE_VERSION && new URLSearchParams(location.search).get("v") !== st.env.appVersion) {
